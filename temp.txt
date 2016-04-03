@@ -1,0 +1,2525 @@
+Cut <- function (x, breaks, labels = NULL,  include.lowest = FALSE, right = TRUE,  dig.lab = 3, ...) 
+{
+    # Same as cut but using midpoints as labels
+    if (!is.numeric(x)) 
+        stop("'x' must be numeric")
+    if (length(breaks) == 1) {
+        if (is.na(breaks) | breaks < 2) 
+            stop("invalid number of intervals")
+        nb <- as.integer(breaks + 1)
+        dx <- diff(rx <- range(x, na.rm = TRUE))
+        if (dx == 0) 
+            dx <- rx[1]
+        breaks <- seq(rx[1] - dx/1000, rx[2] + dx/1000, len = nb)
+    }
+    else nb <- length(breaks <- sort(breaks))
+    if (any(duplicated(breaks))) 
+        stop("'breaks' are not unique")
+    codes.only <- FALSE
+    if (is.null(labels)) {
+        for (dig in dig.lab:max(12, dig.lab)) {
+            ch.br <- formatC(breaks, digits = dig, wid = 1)
+            if (ok <- all(ch.br[-1] != ch.br[-nb])) 
+                break
+        }
+        labels <- if (ok) 
+            (breaks[-1]+breaks[-nb])/2
+        else (1:(nb - 1)+2:nb)/2
+    }
+    else if (is.logical(labels) && !labels) 
+        codes.only <- TRUE
+    else if (length(labels) != nb - 1) 
+        stop("labels/breaks length conflict")
+    #code <- .C("bincode", x = as.double(x), n = as.integer(length(x)), 
+    #    breaks = as.double(breaks), as.integer(nb), code = integer(length(x)), 
+    #    right = as.logical(right), include = as.logical(include.lowest), 
+    #    naok = TRUE, NAOK = TRUE, DUP = FALSE, PACKAGE = "base")$code
+    code <- .bincode(x = as.double(x), breaks = as.double(breaks), right = as.logical(right), include.lowest = as.logical(include.lowest))
+    if (codes.only) 
+        code
+    else factor(code, seq(labels), labels)
+}
+
+find.most.common <- function(xin, break.ties.at.random=FALSE)
+{
+    # Finds and returns the maximum value in a vector of data
+
+    # Ties can be broken RANDOMLY using "which.is.max" from "nnet"
+
+    # You were warned...
+
+    # MJM Sometime during late 2003
+
+    # How about preserving the attributes, working on a coerced
+    # character version of the object, and resetting the attributes
+    # later?
+
+    if(break.ties.at.random) {require(nnet)}
+
+    tmp.xin <- as.character(xin)
+
+    tmp.table <- table(tmp.xin)
+
+    if(length(tmp.table)==0)
+    {
+        return("NA")#<-- NA trap...
+    }
+    else
+    {
+        tmp.max <- if(break.ties.at.random) {which.is.max(tmp.table)} else {which.max(tmp.table)}
+        tmp.labels <- labels(tmp.table[tmp.max])
+        return(tmp.labels)
+    }
+}
+get.top.n <- function(x, y, FUN=sum, n=10, na.rm=TRUE, zap.zeros=TRUE,...)
+{
+    TAB <- tapply(y, x, FUN, na.rm=TRUE, ...)
+    TAB <- sort(TAB, decreasing=TRUE)
+
+    if(zap.zeros)
+    {
+        TAB <- TAB[TAB > 0]
+
+        if(length(TAB) < n)
+        {
+            N <- length(TAB)
+            index <- 1:N
+            warning(paste("You have fewer non-zero names available than your specified n, ", N, " names only will (can) be returned", sep=""))
+        }
+        else
+        {
+            index <- 1:n
+        }
+    }
+    else
+    {
+        index <- 1:n
+    }
+
+    out <- names(TAB)[index]
+
+    return(out)
+}
+
+impute.value <- function(VAR, fix.index, group.index, FUN = median,...)
+{
+    # VAR is the variable to correct
+    # fix.index is a true/false vector of the values of VAR to correct
+    # group.index is the grouping index vector
+
+    # Alistair Dunn (undated) with modifications by MJM 2007-05-25
+
+    VAR[fix.index] <- NA
+    group.use <- group.index %in% unique(group.index[fix.index])
+    temp <- tapply(VAR[group.use], group.index[group.use], FUN,...)#<-- Adding the group.use index greatly decreases the run time...
+    temp.index <- names(temp)
+    VAR[fix.index] <- temp[match(group.index[fix.index], temp.index)]
+    return(VAR)
+}
+
+hist2d <- function(x,z,FUN=Sum,xbreaks,...){
+    # equivalent function of single.tab for continuous variables x,y
+    # turn x into factors with levels being the midpoints of xbreaks
+    x <- Cut(x,xbreaks) 
+    z <- tapply(z,list(x),FUN,...)
+    return(list(x=as.numeric(levels(x)),z=z))
+}
+    
+hist3d <- function(x,y,z,FUN=Sum,xbreaks,ybreaks,...){
+    # equivalent function of cross.tab for continuous variables x,y
+    # turn x into factors with levels being the midpoints of xbreaks
+    x <- Cut(x,xbreaks) 
+    y <- Cut(y,ybreaks)
+    z <- tapply(z,list(x,y),FUN,...)
+    return(list(x=as.numeric(levels(x)),y=as.numeric(levels(y)),z=z))
+}
+
+match.up <- function(Dx, Ix, Iy, nomatch=NA, incomparables=FALSE, zap.NAs=FALSE)
+{
+    # A function to match up values in one vector with those in
+    # another using some common index
+
+    if(!all(is.vector(Dx) || is.vector(Ix) || is.vector(Iy)))
+    {
+        stop("at least one of Dx, Ix, or Iy is not a vector")
+    }
+
+    if(!any(unique(Ix) %in% unique(Iy)))
+    {
+        stop("Ix and Iy contain no values in common")
+    }
+
+    if(length(Dx) != length(Ix))
+    {
+        stop("the length of your data vector (", deparse(substitute(Dx)), ") does not equal the length of the corresponding index (", deparse(substitute(Ix)), ")")
+    }
+
+    OUT <- match(as.character(Iy), as.character(Ix), nomatch=nomatch, incomparables=incomparables)
+    Dy <- Dx[OUT]
+
+    if(zap.NAs)
+    {Dy[is.na(Dy)] <- rep(0, length(Dy[is.na(Dy)]))}
+
+    return(Dy)
+}
+
+
+Table <- function(...)
+{
+    if (length(list(...))==1) return(c(table(...,exclude=c()),"TOTAL.OBS"=length(...)))
+    else {
+        ANS<-table(...,exclude=c())
+        return(rbind(ANS,"TOTAL.OBS"=apply(ANS,2,sum)))
+    }
+}
+
+
+
+na.tighten.omit <- function(frame)
+{
+tighten(na.omit(frame))
+
+}
+
+
+"tighten" <- function(data.frame)
+{
+#return a data frame where all factors (ordered) have been refactor to take out redundant levels
+#
+
+vars <- seq(length=length(data.frame))
+for(j in vars){
+  x <- data.frame[[j]]
+  if(is.factor(x)){
+    if(any(class(x)=="ordered"))
+      data.frame[[j]] <- ordered(x)
+    else
+      data.frame[[j]] <- factor(x)
+  }
+}
+data.frame
+  
+}
+
+## Summarizes data.
+## Gives count, mean, standard deviation, standard error of the mean, and confidence interval (default 95%).
+##   data: a data frame.
+##   measurevar: the name of a column that contains the variable to be summariezed
+##   groupvars: a vector containing names of columns that contain grouping variables
+##   na.rm: a boolean that indicates whether to ignore NA's
+##   conf.interval: the percent range of the confidence interval (default is 95%)
+summarySE <- function(data=NULL, measurevar, groupvars=NULL, na.rm=FALSE,
+                      conf.interval=.95, .drop=TRUE) {
+    require(plyr)
+
+    # New version of length which can handle NA's: if na.rm==T, don't count them
+    length2 <- function (x, na.rm=FALSE) {
+        if (na.rm) sum(!is.na(x))
+        else       length(x)
+    }
+
+    # This is does the summary; it's not easy to understand...
+    datac <- ddply(data, groupvars, .drop=.drop,
+                   .fun= function(xx, col, na.rm) {
+                           c( N    = length2(xx[,col], na.rm=na.rm),
+                              mean = mean   (xx[,col], na.rm=na.rm),
+                              sd   = sd     (xx[,col], na.rm=na.rm)
+                              )
+                          },
+                    measurevar,
+                    na.rm
+             )
+
+    # Rename the "mean" column    
+    datac <- rename(datac, c("mean"=measurevar))
+
+    datac$se <- datac$sd / sqrt(datac$N)  # Calculate standard error of the mean
+
+    # Confidence interval multiplier for standard error
+    # Calculate t-statistic for confidence interval: 
+    # e.g., if conf.interval is .95, use .975 (above/below), and use df=N-1
+    ciMult <- qt(conf.interval/2 + .5, datac$N-1)
+    datac$ci <- datac$se * ciMult
+
+    return(datac)
+}
+
+## Norms the data within specified groups in a data frame; it normalizes each
+## subject (identified by idvar) so that they have the same mean, within each group
+## specified by betweenvars.
+##   data: a data frame.
+##   idvar: the name of a column that identifies each subject (or matched subjects)
+##   measurevar: the name of a column that contains the variable to be summariezed
+##   betweenvars: a vector containing names of columns that are between-subjects variables
+##   na.rm: a boolean that indicates whether to ignore NA's
+normDataWithin <- function(data=NULL, idvar, measurevar, betweenvars=NULL,
+                           na.rm=FALSE, .drop=TRUE) {
+    require(plyr)
+
+    # Measure var on left, idvar + between vars on right of formula.
+    data.subjMean <- ddply(data, c(idvar, betweenvars), .drop=.drop,
+                           .fun = function(xx, col, na.rm) {
+                                      c(subjMean = mean(xx[,col], na.rm=na.rm))
+                                  },
+                           measurevar,
+                           na.rm
+                     )
+
+    # Put the subject means with original data
+    data <- merge(data, data.subjMean)
+
+    # Get the normalized data in a new column
+    measureNormedVar <- paste(measurevar, "Normed", sep="")
+    data[,measureNormedVar] <- data[,measurevar] - data[,"subjMean"] +
+                               mean(data[,measurevar], na.rm=na.rm)
+
+    # Remove this subject mean column
+    data$subjMean <- NULL
+
+    return(data)
+}
+
+## Summarizes data, handling within-subjects variables by removing inter-subject variability.
+## It will still work if there are no within-S variables.
+## Gives count, mean, standard deviation, standard error of the mean, and confidence interval (default 95%).
+## If there are within-subject variables, calculate adjusted values using method from Morey (2008).
+##   data: a data frame.
+##   measurevar: the name of a column that contains the variable to be summariezed
+##   betweenvars: a vector containing names of columns that are between-subjects variables
+##   withinvars: a vector containing names of columns that are within-subjects variables
+##   idvar: the name of a column that identifies each subject (or matched subjects)
+##   na.rm: a boolean that indicates whether to ignore NA's
+##   conf.interval: the percent range of the confidence interval (default is 95%)
+summarySEwithin <- function(data=NULL, measurevar, betweenvars=NULL, withinvars=NULL,
+                            idvar=NULL, na.rm=FALSE, conf.interval=.95, .drop=TRUE) {
+
+    # Ensure that the betweenvars and withinvars are factors
+    factorvars <- sapply(data[, c(betweenvars, withinvars), drop=FALSE], FUN=is.factor)
+    if (!all(factorvars)) {
+        nonfactorvars <- names(factorvars)[!factorvars]
+        message("Automatically converting the following non-factors to factors: ",
+                paste(nonfactorvars, collapse = ", "))
+        data[nonfactorvars] <- lapply(data[nonfactorvars], factor)
+    }
+
+    # Norm each subject's data    
+    data <- normDataWithin(data, idvar, measurevar, betweenvars, na.rm, .drop=.drop)
+
+    # This is the name of the new column
+    measureNormedVar <- paste(measurevar, "Normed", sep="")
+
+    # Replace the original data column with the normed one
+    data[,measurevar] <- data[,measureNormedVar]
+
+    # Collapse the normed data - now we can treat between and within vars the same
+    datac <- summarySE(data, measurevar, groupvars=c(betweenvars, withinvars), na.rm=na.rm,
+                       conf.interval=conf.interval, .drop=.drop)
+
+    # Apply correction from Morey (2008) to the standard error and confidence interval
+    #  Get the product of the number of conditions of within-S variables
+    nWithinGroups    <- prod(sapply(datac[,withinvars, drop=FALSE], FUN=nlevels))
+    correctionFactor <- sqrt( nWithinGroups / (nWithinGroups-1) )
+
+    # Apply the correction factor
+    datac$sd <- datac$sd * correctionFactor
+    datac$se <- datac$se * correctionFactor
+    datac$ci <- datac$ci * correctionFactor
+
+    return(datac)
+}
+
+
+
+
+####################################################################################
+# Maths & Statistical functions
+####################################################################################
+
+Between <-function(x0, x1, x2)
+	{
+	# Determines whether x0 is between x1 & x2, returning
+	# 1 if x0<xlo, 2 if x0=xlo, 3 if xlo<x0<xhi, 4 if xo=xhi and 5 if x>xhi
+	# where xlo=min(x1,x2), xhi=max(x1,x2)
+	# For the special case where x1==x2, never returns 3 or 4
+	# returning 2 if x0=x1=x2.
+	# 
+		if(x0 < x1) {
+			out <- if(x0 < x2) 1 else if(x0 == x2)
+				2
+			else 3
+		}
+		else if(x0 > x1) {
+			out <- if(x0 < x2) 3 else if(x0 == x2)
+				4
+			else 5
+		}
+		else {
+			out <- if(x0 < x2) 2 else if(x0 == x2)
+				2
+			else 4
+		}
+		out
+	}
+
+
+is.even <- function(x) ifelse((x/2)==(x%/%2),T,F)
+is.odd <- function(x) ifelse((x/2)==(x%/%2),F,T)
+in.range <- function(x,v){ifelse(x>=range(v)[1] && x<=range(v)[2],TRUE,FALSE)}
+is.Finite<-function(x){((is.numeric(x) || is.complex(x)) & !is.na(x)) & x != Inf}
+is.in <- function(x,y) { x %in% y }
+len <- function (x) {length(x)}
+unlapply <- function(x,...) {unlist(lapply(x,...))}
+
+
+"Max" <- function(...,na.rm=T)	 max(...,na.rm=na.rm)
+"Mean" <- function(x,na.rm=T,...)	 mean(x,na.rm=na.rm,...)
+"Median" <- function(x,na.rm=T,...)	 median(x,na.rm=na.rm,...)
+"Min" <- function(...,na.rm=T)	 min(...,na.rm=na.rm)
+"Range" <- function(...,na.rm=T)	 range(...,na.rm=na.rm)
+
+"Quantile" <- function(x, probs = seq(0, 1, 0.25), na.rm = T, names = T, type = 7, ...) quantile(x,probs=probs,na.rm=na.rm,names=names,type=type,...)
+"Sum" <- function(..., na.rm=T)	sum(...,na.rm=na.rm)
+"Var"<- function(x, y = x) {
+  new.x <- x[!is.na(x)]
+  new.y <- y[!is.na(y)]
+  return(var(new.x, new.y))
+}
+Paste <- function(...,sep="") paste(...,sep=sep)
+
+skew <- function(x) 3*(Mean(x)-Median(x))/sqrt(Var(x))
+
+geometric.mean <- function(x) exp(sum(log(x))/length(x))
+
+Intersect<-function(...)
+{
+  stuff <- lapply(list(...), unique)
+  answer <- stuff[[1]]
+  for(i in seq(along=stuff)[-1])
+  answer <- answer[match(stuff[[i]], answer, nomatch = 0)]
+  return(answer)
+}
+
+
+
+
+
+qqDist <- function(x, standardise = F, add.median = F, ...)
+{
+  n<-length(x)
+  seq.length<-min(1000,n)
+  if(standardise) {
+    SEQ<-seq(1,2*n+1,length=seq.length)/2
+    U<-qnorm(qbeta(0.975,SEQ,rev(SEQ)))
+    L<-qnorm(qbeta(0.025,SEQ,rev(SEQ)))
+    if(add.median) M<-qnorm(qbeta(0.5,SEQ,rev(SEQ)))
+  } else {
+    SD<-sqrt(var(x)*(n+1)/n)
+    SEQ<-seq(1,2*n+1,length=seq.length)/2
+    U<-mean(x)+SD*qt(qbeta(0.975,SEQ,rev(SEQ)),n-1)
+    L<-mean(x)+SD*qt(qbeta(0.025,SEQ,rev(SEQ)),n-1)
+    if(add.median) M<-mean(x)+SD*qt(qbeta(0.5,SEQ,rev(SEQ)),n-1)
+  }
+  X<-qnorm((SEQ-0.25)/(n+0.5))
+  qqnorm(x,main="",...)
+  lines(X,U,type="l")
+  lines(X,L,type="l")
+  if(add.median) lines(X,M,type="l")
+  invisible()
+}
+
+ci <- function(data, z.value = 1.96) {
+  data.mean <- mean(data, na.rm = T)
+  data.se <- sqrt(Var(data)/length(data[!is.na(data)]))
+  upper.ci <- data.mean + z.value * data.se
+  lower.ci <- data.mean - z.value * data.se
+  return(c(mean = data.mean, std.error = data.se, CV = round(sqrt(Var(data))/data.mean * 100, 2), lower.ci = lower.ci, upper.ci = upper.ci))
+}
+
+proportion.ci<-function(r, n, ci = 0.95)
+{
+# uses exact F distribution to determine the exact confidence intervals
+# r can be a proportion or a number
+  r <- ifelse(r < 1, round(r * n), r)
+  t1 <- 1 - (1 - ci)/2
+  old.warn <- options()$warn
+  options(warn = -1)
+  F1 <- qf(t1, 2 * n - 2 * r + 2, 2 * r)
+  F2 <- qf(t1, 2 * r + 2, 2 * n - 2 * r)
+  options(warn = old.warn)
+  lower.ci <- r/(r + (n - r + 1) * F1)
+  upper.ci <- (r + 1)/(r + 1 + (n - r)/F2)
+  lower.ci <- ifelse(is.na(lower.ci) & !is.na(n) & !is.na(r), 0, lower.ci)
+  upper.ci <- ifelse(is.na(upper.ci) & !is.na(n) & !is.na(r), 1,upper.ci)
+  RES <- data.frame(r, n, p = r/n, lower.ci, upper.ci)
+  return(RES)
+}
+
+
+Area <- function(corners)
+{
+# Ian Doonan
+# Find the area of a polygon
+# corners$x,$y corners of polygon
+# Area(list(x=c(0,2,3,4,4),y=c(0,2,1,2,0))) -->5
+#
+if(length(corners$x)<3 | length(corners$y)<3 ) {
+    print("ERROR Area(): need 3 or more points ************")
+    return(NULL)
+    }
+if(length(corners$x) != length(corners$y) ) {
+    print("ERROR Area(): points in corners$y not equal to corners$x ************")
+    return(NULL)
+    }
+TotArea<-0
+SubArea<-0
+n<-length(corners$x)
+I0<-0
+for(j in c(1:(n))) {
+  if(!is.na(corners$y[j]) & !is.na(corners$x[j]) & I0 ==0) I0<-j
+  }
+for(j in c(I0:(n))) {
+   i<-j
+   i1<-j+1
+   if (i1>n)i1<-I0
+   if(is.na(corners$y[i1]) | is.na(corners$x[i1])) i1<-I0
+# still problems if 2 NA's in a row
+   if(!is.na(corners$y[i]) & !is.na(corners$x[i])){
+     SubArea<-SubArea + corners$x[i]*corners$y[i1]-
+     corners$x[i1]*corners$y[i]
+   } else {
+     TotArea<-TotArea + abs(SubArea)
+     SubArea<-0
+     I0<-i1
+     }
+   }
+TotArea<-(TotArea + abs(SubArea))/2
+return(TotArea)
+}
+
+DistanceLongLat <- function(long1, long2, lat1, lat2, metres = F)
+{
+# Inputs start=(long1,lat1) and end=(long2,lat2) in decimal degrees
+# OR assumes that locator is used to define exactly 2 points
+#
+# Assumes longitude numbers are positive and that numbers > 180 are WESTINGS
+# Assumes lattitude negative numbers are SOUTHINGS
+# Outputs nautical miles if metres=F, else distance in metres
+
+if(missing(long1) | missing(long2)| missing(lat1) | missing(lat2)) {
+  cat("Using function \"locator(2)\" to locate end points\n")
+    x <- nz.locator(2)
+    long1 <- x$x[1]
+    long2 <- x$x[2]
+    lat1 <- x$y[1]
+    lat2 <- x$y[2]
+    print(unlist(c(long1,long2,lat1,lat2)))
+  }
+  long1 <- (long1 * pi)/180
+  long2 <- (long2 * pi)/180
+  lat1 <- ifelse(lat1 > 180, 360 - lat1,  - lat1)
+  lat2 <- ifelse(lat2 > 180, 360 - lat2,  - lat2)
+  lat1 <- (lat1 * pi)/180
+  lat2 <- (lat2 * pi)/180
+  d <- 2 * asin(sqrt((sin((lat1 - lat2)/2))^2 + cos(lat1) * cos(lat2) * (
+    sin((long1 - long2)/2))^2))
+  nm <- (d * 180 * 60)/pi
+  if(metres)
+    nm <- nm * 1.852 * 1000
+  return(nm)
+
+}
+
+distance.lat.long <- 
+function(x1, y1, x2, y2, units="metres")
+  {
+    # A function to return the distance in either KMs or Ms separating two points on the Earth's surface
+    # i.e. the start and end points of a tow or set...
+
+    # Uses the simple spherical model
+
+    # Points MUST be decimalised degrees
+
+    radians <- function(xin)
+      {
+        tmp.rad <- (pi*xin)/180
+        return(tmp.rad)
+      }
+
+    
+    if(units=="metres")
+      {
+        r <- 6378388
+       }
+    else if(units=="km")
+      {
+        r <- 6378.388
+      }
+    else if(is.numeric(units)==TRUE)
+      {
+        r <- units
+      }
+    else
+      {
+        stop("Not a valid unit type...")
+      }
+
+    tmp.trig <- (sin(radians(y1)) * sin(radians(y2))) + (cos(radians(y1)) * cos(radians(y2)) * cos(radians(x1) - radians(x2)))
+      
+    tmp.d <- r * acos(tmp.trig)
+
+    return(tmp.d)
+  }
+
+AreaLongLat <- function(Long,Lat)
+{
+# find area of polygon of lat,long in decimal form (eg 174.5 = 174deg. 30 min)
+# km^2
+# if only Long then assume a list (x,y)
+#
+# eg  for SurveyBoundry we get 646.7414  (cf 647.3 for rstn on frc)
+#            (BonNonSub()  2.6% too high? - some small errors?)
+#  x<-matrix(scan("SurveyBoundry"),ncol=4,byrow=T)
+#  AreaLongLat(x[,3]+x[,4]/60,x[,1]+x[,2]/60)
+if(missing(Lat))Poly<-Long else Poly<-list(x=Long,y=Lat)
+# convert to Km
+Tna<-!is.na(Poly$x)
+Poly$x[Tna]<-Poly$x[Tna]* (111.41*cos(pi/180*Poly$y[Tna])-
+ 0.01*cos(3*pi/180*Poly$y[Tna]))
+Tna<-!is.na(Poly$y)
+Poly$y[Tna]<-Poly$y[Tna]* (111.14-
+ 0.56*cos(2*pi/180*Poly$y[Tna]))
+return(Area(Poly))
+}
+
+inRegion <- function(corners, rx, ry)
+{
+# Ian Doonan
+# check if rx,ry are in polygon "corners"
+# corners$x, $y corners of polygon
+#
+# Bodged by Alistair Dunn to fix a weird error
+#
+In <- rep(F, length(rx))
+a1 <- rep(0, length(rx))
+n <- length(corners$x)
+for(j in c(1:(n + 1))) {
+  i <- j
+  if(j > n)  i <- 1
+  Inn <- ((corners$y[i] == ry) & (corners$x[i] == rx))
+  In[Inn] <- T
+  Atan <- atan2(corners$y[i] - ry, corners$x[i] - rx)
+  if(j == 1)  prevAtan <- Atan
+  a0 <- Atan - prevAtan
+# the next line is a bodge to fix a weird error
+  a0[!is.finite(a0)] <- 0
+  a0[a0 > pi] <- a0[a0 > pi] - 2 * pi
+  a0[a0 <  - pi] <- a0[a0 <  - pi] + 2 * pi
+  a1 <- a1 + a0
+  prevAtan <- Atan
+  }
+In[!In] <- abs(abs(a1[!In]) - 2 * pi) < 0.001
+#  sum=360 if inside; 0 if out
+if(length(In[!In]) > 0) {
+  Inn <- abs(a1[!In]) > 0.001
+  if(length(Inn[Inn]) > 0) {
+  # outside points not sum to 0
+    print("Queer points .. CHECK them")
+    print(t(matrix(c(a1[!In][Inn]/2/pi*360,c(1:n)[!In][Inn]),ncol=2,dimnames=list(NULL,c("Sum angles","Index of point")))))
+    }
+  }
+# print(a1/2/pi*360)
+return(In)
+}
+
+
+
+convert.degrees <- function(x, digits = 3, symbol = F)
+{
+# returns a character represenation of decimal degrees
+# in degrees, minutes and decimal minutes.
+# Assumes that negative numbers are latitudes
+degree <- abs(trunc(x))
+minute <- (abs(x) - degree) * 60
+if(symbol) {
+  RES <- paste(Format(degree, 0, pad=T), "\260", Format(minute, digits, pad=T), "'", sep = "")
+  a1<-substring(RES,1,regexpr(" ",RES)-1)
+  a2<-substring(RES,regexpr(" ",RES)+1,nchar(RES))
+  RES<-ifelse(nchar(a1)>0,paste(a1,"0",a2,sep=""),a2)
+} else RES <- paste(Format(degree, 0, pad=T), " ", Format(minute, digits, pad=T), sep = "")
+return(RES)
+}
+
+geo.dist <-function(x, y, x2 = NULL, y2 = NULL, r = 1, f = 0)
+
+# Function to calculate the angular or great-circle distance between pairs of
+#   coordinates on the Earth's surface. Coordinates are entered in decimal
+#   degrees.
+
+# Usage
+
+# dist.col(x, y, x2 = NULL, y2 = NULL, r = 1, f = 0)
+
+# Arguments
+
+#   x, y, x2, y2    either matrices, data frames or vectors of the sets of
+#                   coordinates of pairs of points between which the angle or
+#                   distance is calculated. The coordinates of each set of
+#                   points is either in a data frame or matrix or in a pair of
+#                   vectors. In a data frame or matrix either the longitudes and
+#                   latitudes have column names "long" and "lat respectively, or
+#                   the first first and second column are the longitudes and
+#                   latitudes, respectively. See Details for usage.
+#   r               Local radius of the Earth in appropriate units. Default is
+#                   r = 1 in which case the angular distance in radians is
+#                   returned. Equatorial radius of the Earth is r = 6378.137 km.
+#                   At NZ latitudes the local radius is approx 6365 km.
+#                   If f (!= 0) is specified (###TBD) then r must be the
+#                   equatorial radius.
+#   f               Flattening of the polar ellipse in the oblate spheroid model
+#                   for the Earth. NOT IMPLEMENTED. Default is f = 0 which
+#                   assumes a sphere. Actual flattening of the Earth is
+#                   f = 0.00335281. f can also be negative (prolate sphere).
+#                   In general the local radius at latitude theta is
+#                   r/sqrt(1 + (2*f - f^2)*(sin(theta))^2/(1 - f)^2). CHECK!!!
+
+# Details
+
+# Function will handle any of the following command syntaxes in relation to the
+# entry of the coordinates of the pairs of points:
+#   1. geo.dist(mat1, mat2),
+#   2. geo.dist(mat1, vec3, vec4),              ###TBD
+#   3. geo.dist(mat1, vec3, y2 = vec4),         ###TBD
+#   4. geo.dist(mat1, x2 = vec3, y2 = vec4),
+#   5. geo.dist(vec1, vec2, vec3, vec4),
+# where:
+#   mat1 is a data frame or matrix with 1st set of coords,
+#   mat1 is a data frame or matrix with 2nd set of coords,
+#   vec1 and vec2 are vectors of 1st set of longs and lats,
+#   vec3 and vec4 are vectors of 2nd set of longs and lats,
+
+# Updates
+
+#   11 Nov 2005 Redefined the roles of y, x1 and x2 in the case when x is a
+#               matrix or data frame and the second set of coordinates is
+#               specified by 2 vectors (now x2 and y2, but was y and x2).
+
+
+{
+    if (missing(y)) y <- NULL
+
+    if (is.matrix(x) | is.data.frame(x)) {
+        if (all(c("long", "lat") %in% colnames(x))) {
+            long1 <- x[, "long"]
+            lat1 <-  x[, "lat"]
+        } else {
+            long1 <- x[, 1]
+            lat1 <-  x[, 2]
+        }
+        if (is.matrix(y) | is.data.frame(y)) {
+            if (all(c("long", "lat") %in% colnames(y)))
+            {
+                long2 <- y[, "long"]
+                lat2 <-  y[, "lat"]
+            } else {
+                long2 <- y[, 1]
+                lat2 <-  y[, 2]
+            }
+        } else {
+            if (!(is.vector(x2) & is.vector(y2)))
+                stop("Coordinates of second points are not in vector, matrix or data frame format")
+            long2 <- x2
+            lat2 <-  y2
+        }
+    } else {
+        if (!(is.vector(x) & is.vector(y) & is.vector(x2) & is.vector(y2)))
+            stop("Coordinates of points are not in vector, matrix or data frame format")
+        long1 <- x
+        lat1 <-  y
+        long2 <- x2
+        lat2 <-  y2
+    }
+
+    llg1 <- length(long1)
+    llg2 <- length(long2)
+    if (llg1 != length(lat1))
+        stop("vectors of latitude and longititude for first points are NOT equal")
+    if (llg2 != length(lat2))
+        stop("vectors of latitude and longititude for second points are NOT equal")
+
+    if (llg2 < llg1) {
+            # equalise lengths by recycling shortest
+        l0 <- numeric(llg1)
+        long2 <- long2 + l0
+        lat2 <- lat2 + l0
+        if(llg2 > 1)
+            warning("second points are being recycled")
+    }
+    if (llg1 < llg2) {
+            # equalise lengths by recycling shortest
+        l0 <- numeric(llg2)
+        long1 <- long1 + l0
+        lat1 <- lat1 + l0
+        if(llg1 > 1)
+            warning("first points are being recycled")
+    }
+    if (any(abs(lat1)[!is.na(lat1)] >= 90))
+        stop("Some latitudes for the first points are out of range")
+    if (any(abs(lat2)[!is.na(lat2)] >= 90))
+        stop("Some latitudes for the second points are out of range")
+
+        # Convert degrees to radians
+    long1 <- (long1 %% 360)*pi/180
+    long2 <- (long2 %% 360)*pi/180
+    lat1 <- lat1*pi/180
+    lat2 <- lat2*pi/180
+
+    if (abs(f) > 1.0e-6) { ###TBD
+        warning(paste("Oblate spheroid Earth not implemented,",
+            "assuming Earth is a sphere"))
+    }
+
+    return(r*acos(sin(lat1)*sin(lat2) + cos(lat1)*cos(lat2)*cos(long1 - long2)))
+
+#    V1 <- cbind(cos(lat1)*cos(long1), cos(lat1)*sin(long1), sin(lat1))
+#    V2 <- cbind(cos(lat2)*cos(long2), cos(lat2)*sin(long2), sin(lat2))
+#    return(r*acos(apply(V1*V2, 1, sum)))
+}
+
+"dectodeg"<-function(x)
+	{
+		return((trunc(x) * 100) + ((((x - trunc(x)) * 0.6) * 100)))
+	}
+
+"degtodec"<-function(x)
+	{
+		return(round((((x/100) - trunc(x/100))/0.6) + trunc(x/100), 3))
+	}
+
+	
+	
+
+make.filename<-function(file="",path="",add.terminal=F) {
+  if(path != "") {
+    plc <- substring(path, nchar(path))
+    if(!(plc == "\\" | plc == "/")) path <- paste(path, "\\", sep = "")
+  }
+  filename <- paste(path, file, sep = "")
+  if(add.terminal==T) {
+    plc <- substring(filename, nchar(filename))
+    if(!(plc == "\\" | plc == "/")) filename <- paste(filename, "\\", sep = "")
+  }
+  return(filename)
+}
+
+
+get.Excel.file<-function(file,path,sheet="") {
+  filename<-make.filename(file,path)
+  channel <- odbcConnectExcel(filename)
+  indata <- sqlFetch(channel,sheet)
+  odbcClose(channel)
+  return(indata)
+}
+
+
+is.in <- function(x,y) { x %in% y }
+
+
+stepCPUE <- function(object, scope, r2.change = 0.005, scale = 0, direction = c("both", "backward", "forward"), trace = 1, keep = deviance, steps = 1000, ...)
+{
+  cut.string <- function(string)
+  {
+    if(length(string) > 1)
+      string[-1] <- paste("\n", string[-1], sep = "")
+    string
+  }
+  AIC.drop1 <- function(fit, Terms, scale, trace, ...)
+  {
+    n <- length(Terms)
+    ans <- matrix(nrow = n + 1, ncol = 2)
+    dimnames(ans) <- list(c("<none>", paste("-", Terms, sep = "")), c("df", "AIC"))
+    ans[1,  ] <- extractCPUE(fit, scale, ...)
+    if(n == 0)
+      return(ans)
+    i <- 2
+    for(tt in Terms) {
+      if(trace > 1)
+        cat("trying -", tt, "\n")
+      else cat(".")
+      nfit <- update(fit, paste("~ . -", tt))
+      ans[i,  ] <- extractCPUE(nfit, scale, ...)
+      if(trace > 2)
+        print(ans[i,  ])
+      i <- i + 1
+    }
+    ans
+  }
+  AIC.add1 <- function(fit, Terms, scale, trace, screen, ...)
+  {
+    n <- length(Terms)
+    ans <- matrix(nrow = n + 1, ncol = 2)
+    t2 <- if(length(Terms)) paste("+", Terms, sep = "") else NULL
+    dimnames(ans) <- list(c("<none>", t2), c("df", "AIC"))
+    ans[1,  ] <- extractCPUE(fit, scale, ...)
+    if(n == 0)
+      return(ans)
+    i <- 2
+    for(tt in Terms) {
+      if(trace > 1)
+        cat("trying +", tt, "\n")
+      else cat(".")
+      nfit <- update(fit, paste("~ . +", tt))
+      ans[i,  ] <- extractCPUE(nfit, scale, ...)
+      if(trace > 2)
+        print(ans[i,  ])
+      i <- i + 1
+    }
+    ans
+  }
+  re.arrange <- function(keep)
+  {
+    namr <- names(k1 <- keep[[1]])
+    namc <- names(keep)
+    nc <- length(keep)
+    nr <- length(k1)
+    array(unlist(keep, recursive = F), c(nr, nc), list(namr, namc))
+  }
+  make.step <- function(models, fit, object)
+  {
+    change <- sapply(models, "[[", "change")
+    rd <- sapply(models, "[[", "deviance")
+    dd <- c(NA, diff(rd))
+    rdf <- sapply(models, "[[", "df.resid")
+    ddf <- c(NA, diff(rdf))
+    AIC <- sapply(models, "[[", "AIC")
+    print(AIC)
+    aic <- sapply(models, "[[", "aic")  
+    heading <- c("Stepwise Model Path \nAnalysis of Deviance Table", "\nInitial Model:", deparse(as.vector(formula(object))),
+      "\nFinal Model:", deparse(as.vector(formula(fit))), "\n")
+    aod <- data.frame(Step = change, Df = ddf, Deviance = dd, "Resid. Df" = rdf, "Resid. Dev" = rd, r.squared = AIC, aic=aic,check.names = F)
+    attr(aod, "heading") <- heading
+    attr(aod, "class") <- c("anova", "data.frame")
+    fit$anova <- aod
+    fit
+  }
+  if(missing(direction))
+    direction <- "both"
+  else direction <- match.arg(direction)
+  backward <- direction == "both" | direction == "backward"
+  forward <- direction == "both" | direction == "forward"
+  if(missing(scope)) {
+    fdrop <- numeric(0)
+    fadd <- NULL
+  }
+  else {
+    if(is.list(scope)) {
+      fdrop <- if(!is.null(fdrop <- scope$lower)) attr(terms(update.formula(object, fdrop)), "factor") else numeric(0)
+      fadd <- if(!is.null(fadd <- scope$upper)) attr(terms(update.formula(object, fadd)), "factor")
+    }
+    else {
+      fadd <- if(!is.null(fadd <- scope)) attr(terms(update.formula(object, scope)), "factor")
+      fdrop <- numeric(0)
+    }
+  }
+  if(is.null(fadd)) {
+    backward <- T
+    forward <- F
+  }
+  models <- vector("list", steps)
+  if(!is.null(keep)) {
+    keep.list <- vector("list", steps)
+    nv <- 1
+  }
+  n <- length(object$residuals)
+  fit <- object
+  cf <- attributes(coef(object))  #check if any terms have zero df
+  if(!is.null(cf$singular) && cf$singular > 0) {
+    TT <- !match(TL <- attr(object$terms, "term.labels"), names(cf$assign), F)
+    if(any(TT)) {
+      upd <- eval(parse(text = paste(c(".~.", TL[TT]), collapse = "-")))
+      fit <- update(fit, upd)
+    }
+  }
+  bAIC <- extractCPUE(fit, scale, ...)
+  edf <- bAIC[1]
+  bAIC <- bAIC[2]
+  aic <- AIC(fit)
+  nm <- 1
+  Terms <- fit$terms
+  cat("\n\nTesting for a change in r.squared of less than ", format(round(r2.change, 4)), "\n")
+  #models[[nm]] <- list(deviance = bAIC - 2 * edf, df.resid = n - edf, change = "", AIC = bAIC)
+  models[[nm]] <- list(deviance = deviance(fit) , df.resid = n - edf, change = "", AIC = bAIC,aic=aic)
+  if(!is.null(keep))
+    keep.list[[nm]] <- keep(fit, bAIC)
+  AIC <- 0
+  count.steps <- 0
+  while(steps > 0) {
+    steps <- steps - 1
+    AIC <- bAIC
+    bfit <- fit
+    ffac <- attr(Terms, "factor")
+    scope <- factor.scope(ffac, list(add = fadd, drop = fdrop))
+    aod.drop <- NULL
+    aod.add <- NULL
+    aod <- NULL
+    change <- NULL
+    if(backward && (ndrop <- length(scope$drop))) {
+      aod.drop <- AIC.drop1(fit, scope$drop, scale = scale, trace = trace, ...)
+    }
+    if(forward && (nadd <- length(scope$add))) {
+      aod.add <- AIC.add1(fit, scope$add, scale = scale, trace = trace, screen = screen, ...)
+    }
+    if(is.null(aod.drop) & is.null(aod.add))
+      break
+    if(!is.null(aod.drop) && nrow(aod.drop) > 1) {
+      o <- rev(order(aod.drop[, "AIC"]))
+      if((aod.drop[1, "AIC"] - aod.drop[o[2], "AIC"]) < r2.change) {
+        change <- dimnames(aod.drop)[[1]][o[2]]
+        cat(paste("\nDrop term", change, "\n"))
+        if(is.null(aod.add)) {
+          aod <- aod.drop
+        }
+        else {
+          aod <- rbind(aod.drop, aod.add[-1,  ])
+        }
+      }
+    }
+    if(is.null(aod)) {
+      o <- order( - aod.add[, "AIC"])
+      if((aod.add[o[1], "AIC"] - aod.add[1, "AIC"]) >= r2.change) {
+        change <- dimnames(aod.add)[[1]][o[1]]
+        cat(paste("\nAdd term", change, "\n"))
+        if(is.null(aod.drop)) {
+          aod <- aod.add
+        }
+        else {
+          aod <- rbind(aod.drop, aod.add[-1,  ])
+        }
+      }
+    }
+    if(is.null(aod)) {
+      if(is.null(aod.drop))
+        aod <- aod.add
+      else if(is.null(aod.add))
+        aod <- aod.drop
+      else aod <- rbind(aod.add, aod.drop[-1,  ])
+      cat("\n")
+      print(data.frame(df = aod[, 1], r.squared = aod[, 2]))
+      cat("\n")
+      break
+    }
+    if(trace > 1) {
+      print(data.frame(df = aod[, 1], r.squared = aod[, 2]))
+    }
+    fit <- update(fit, eval(parse(text = paste("~ .", change))))
+    Terms <- fit$terms
+    bAIC <- extractCPUE(fit, scale, ...)
+    edf <- bAIC[1]
+    aic <- bAIC[3]
+    bAIC <- bAIC[2]
+    aic <- AIC(fit)
+    nm <- nm + 1
+    #edf <- models[[nm]] <- list(deviance = bAIC - 2 * edf, df.resid = n - edf, change = change, AIC = bAIC)
+    edf <- models[[nm]] <- list(deviance = fit$deviance, df.resid = n - edf, change = change, AIC = bAIC,aic=aic)
+    if(!is.null(keep))
+      keep.list[[nm]] <- keep(fit, bAIC)
+  }
+  if(!is.null(keep))
+    fit$keep <- re.arrange(keep.list[seq(nm)])
+  fit <- make.step(models = models[seq(nm)], fit, object)
+  print(fit$anova)
+  fit
+}
+
+
+
+######################
+# CPUE INDICES
+######################
+
+
+extractCPUE<-function(fit, scale = 0, ...)
+{
+  n <- length(fit$residuals)
+  edf <- n - fit$df.residual
+  r.squared <- (fit$null.deviance - fit$deviance)/fit$null.deviance
+  c(edf, r.squared)
+}
+
+canonical.index <- function(GLM, year, base=BASEYR, year.name="year", plots=F, diags=F, line.type="o", pch=19, xlim=NULL, ylim=NULL, rescale=FALSE, add=FALSE, one.line=TRUE, one.line.lty=2, one.line.col="black", xlab="Fishing year", ylab="Index", digits=4)
+{
+    res <- as.data.frame(summary(GLM)$coefficients)
+    index <- regexpr(year.name, row.names(res))>0
+    X <- res[index, 1]
+    V<-summary(GLM)$cov.unscaled[index,][,index]
+    n<-length(X)+1
+    A<-matrix(-1/n,n,n-1)
+    A[-base,]<-A[-base,]+diag(rep(1,n-1))
+    CPUE<-A %*% X
+    COV<-sqrt(diag((A %*% V) %*% t(A)))
+    index <- exp(CPUE)
+    lower.CI <- exp(CPUE - 2 * COV)
+    upper.CI <- exp(CPUE + 2 * COV)
+    ans <- data.frame(year, index, lower.CI, upper.CI)
+    RSQ <- round((GLM$null.deviance-GLM$deviance)/GLM$null.deviance, digits=digits)
+
+    if(is.null(ylim))
+    {ylim <- c(0, ceiling(max(pretty(ans$index))))}#<-- Round up to the nearest integer...
+    else
+    {ylim <- ylim}
+    
+    if(plots) {
+
+        if(rescale==TRUE)
+        {
+            MEAN <- mean(ans$index)
+            INDEX <- ans$index/MEAN
+            CI.L <- ans$lower.CI/MEAN
+            CI.U <- ans$upper.CI/MEAN
+        }
+        else
+        {
+            INDEX <- ans$index
+            CI.L <- ans$lower.CI
+            CI.U <- ans$upper.CI
+        }
+
+        if(!add)
+        {
+            plot(ans$year, INDEX, ylim = ylim, xlim = xlim, type = "n", xaxs="i", yaxs = "i", xlab = xlab, ylab = ylab)
+
+            if(one.line)
+            {
+                abline(h = 1, lty = one.line.lty, col=one.line.col)
+            }
+        }
+        points(ans$year, INDEX, pch = pch,type=line.type, bg=one.line.col)
+        segments(ans$year, CI.L, ans$year, CI.U)
+        
+        if(diags){
+            qqnorm(GLM$residuals)
+            qqline(GLM$residuals)}
+    }
+    
+    #cat(paste("\n\nOverall r-squared :", RSQ, "\n\n"))
+    ans$se<-COV
+    ans$cv <- sqrt(exp(COV^2)-1)
+    ans <- list("index"=ans, "R_squared"=RSQ)
+    .ans <<- ans
+    return(ans)
+}
+
+r.squared <- function(GLM,decimals=3)
+{
+    # A function to extract the r.squared value from a fitted glm object
+    RES <- round((GLM$null.deviance-GLM$deviance)/GLM$null.deviance,decimals)
+    return(RES)
+}
+
+string.match<-function(pattern, text) {
+  # this doesnt crash?
+  ans <- regexpr(pattern, text)
+  ans<-(1:length(ans))[ans!= -1]
+  return(ans)
+}
+
+
+predictCPUE<-function(variable, data, cpue.fit = NULL, nonzero.fit = NULL, xcts = F,
+             fixed = list(), nmin = 0, plotit = T, se.fit = F, nobs = (nmin > 0),
+             incl.fixed = F, log.scale = F, type = "l", ylab = NULL, xlab = NULL,
+             plotvalues=T,xlim,...)
+{
+# Written by RICC Francis, and fiddled around with by Alistair Dunn.
+# Calculates (and plots, if requested) the predicted value of the predictand
+# for: a range of values of the predictors named in variable, and fixed values
+# for all other predictors.
+#
+# The predictand will be either:
+#    expected non-zero catch rate (if is.null(nonzero.fit) & log.scale=F),
+#    expected log(non-zero catch rte) (if is.null(nonzero.fit) & log.scale=T),
+#    expected probability of non-zero catch (if is.null(cpue.fit)), or
+#    expected catch rate (otherwise)
+#
+# WARNING: This does not work properly for nested factors
+#
+# Default output is a vector of predicted values
+# (or a matrix, if len(variable) = 2).
+# If either se.fit or nobs is true then the predicted
+# values are out$fit, their s.e.s are out$se.fit [omitted if(se.fit==F)],
+# and the number of observations for each predicted value is in out$nobs
+# [omitted if(nobs==F)]
+#
+# If predictions are plotted the x-axis will contain all levels of variable[1]
+# (if it is a factor) or the range of its values of variable (if not). The
+# fixed values of all other predictors are either as given in fixed or are
+# "median" values.  For predictors that are factors the median level is
+# that associated with the median regression coefficient (ignoring
+# interactions); for those that are not it is the median value of the
+# predictor in the associated data frame.
+#
+# variable - a character vector of length 1 or 2 naming the predictors
+#        that should be varied.  If it is of length 2 then the first
+#        predictand will occur on the x-axis, and a curve will be plotted
+#        for each level of the second predictand (which must be a factor)
+#
+# data - data frame for variables in cpue.fit &/or nonzero.fit - normally
+#        output from function Mkcpue.dat
+#        (should be the same as was used in constructing glm.fit - I should be
+#         able to get this info from glm.fit but I don't know how!!)
+#
+# cpue.fit - fit (output from glm or stepCPUE) of model whose dependent
+#        variable is either data$cpue or data$lcpue (for non-zero catches)
+#
+# nonzero.fit - fit (output from glm or stepCPUE) of model whose dependent
+#        variable is data$nonzero
+#
+# fixed - a list (e.g., list(yr=1986,area='h2')) specifying the fixed
+#         values of other predictors.
+#
+# xcts - if T then the levels of variable[1] (which form the x-axis) will
+#        be treated as a continuous variable
+#        If variable[1] is not a factor then xcts is ignored
+#
+# nmin - if nmin>0 then predicted values will be plotted
+#        only for those combinations of factor levels
+#        from variable in which the number of observations >= nmin
+#        (ignored if variable[1] is not a factor)
+#
+# plotit - if T plot predicted values
+#
+# se.fit - if T include component se.fit in output
+#
+# nobs - if T include component nobs in outpt (ignored if variable[1] is not
+#        a factor)
+#
+# incl.fixed - if T include component fixed in output (detailing the levels
+#             of predictors that were held fixed)
+#
+# log.scale - return log(non-zero catch rate) if T, non-zero catch rate if F
+#             (log.scale is ignored if !is.null(nonzero.fit))
+#
+# type,ylab, ... -  plot arguments
+#
+
+is.in<-function(x,y)!is.na(match(x,y))
+ if(!is.in("catch",names(data))) stop("The data set must contain a catch variable")
+ if(!is.in("cpue",names(data)) & !is.in("lcpue",names(data))) stop("The data set must contain either a cpue or lcpue variable")
+ nonz <- data$catch != 0
+ cpue.coefnam <- if(!is.null(cpue.fit)) names(coef(cpue.fit)) else ""
+ nonzero.coefnam <-if(!is.null(nonzero.fit)) names(coef(nonzero.fit)) else ""
+ varnam <- names(data)
+ fixnam <- names(fixed)
+ multiple <- length(variable) > 1
+ if(multiple) {
+  if(!is.factor(data[[variable[2]]]))
+   stop(paste(variable[2], "is not a factor"))
+  variable <- variable[1:2]
+ # ignore additional members of variable
+ }
+ if(length(variable) == 2 & !is.factor(data[[variable[2]]])) {
+  nmin <- 0
+  nobs <- F
+ }
+#
+# Check for errors in variable and names(fixed)
+#
+ for(vr in c(variable, fixnam)) {
+  tmp <- match(vr, varnam)
+  if(is.na(tmp)) stop(paste(vr, "not in data frame"))
+ }
+#
+# Find median values for unnamed fixed predictors
+#
+ for(vr in varnam[!is.in(varnam, c(variable, fixnam))]) {
+  in.cpue <- length(string.match(vr, cpue.coefnam)) > 0
+  in.nonzero <- length(string.match(vr, nonzero.coefnam)) > 0
+  if(in.cpue) {
+   if(is.factor(data[[vr]])) {
+    levs <- levels(data[[vr]])
+    cf <- coef(cpue.fit)[paste(vr, levs, sep ="")]
+    cf[1] <- 0
+    fixed[[vr]] <-levs[order(cf)][floor(length(cf)/2)]
+   }
+   else {
+    fixed[[vr]] <- median(data[[vr]][nonz])
+   }
+  }
+  else if(in.nonzero) {
+   if(is.factor(data[[vr]])) {
+    levs <- levels(data[[vr]])
+    cf <- coef(nonzero.fit)[paste(vr, levs,sep = "")]
+    cf[1] <- 0
+    fixed[[vr]] <-levs[order(cf)][floor(length(cf)/2)]
+   }
+   else {
+    fixed[[vr]] <- median(data[[vr]])
+   }
+  }
+ }
+#
+# Find values for first variable
+#
+ xaxt <- "s"
+ if(is.factor(data[[variable[1]]])) {
+  xlev <- levels(data[[variable[1]]])
+  xf <- as.factor(xlev)
+  if(xcts)
+   xvar <- as.numeric(xlev)
+  else {
+   xvar <- 1:length(xlev)
+   xaxt <- "n"
+  }
+ }
+ else {
+  xrng <-if(!is.null(cpue.fit)) range(data[[variable[1]]][nonz])
+    else range(data[[variable[1]]])
+  xf <- xvar <- seq(xrng[1], xrng[2], length = 20)
+  xlev <- paste(xf)
+ }
+ if(multiple) {
+  zlev <- levels(data[[variable[2]]])
+  newfram <- data.frame(rep(xf, length(zlev)),rep(as.factor(zlev),rep(length(xf), length(zlev))))
+ }
+ else newfram <- data.frame(xf, row.names = xf)
+ names(newfram) <- variable
+ nrw <- nrow(newfram)
+ for(vr in names(fixed)) {
+  if(is.factor(data[[vr]]))
+   newfram[[vr]] <- factor(rep(fixed[[vr]], nrw),levels(data[[vr]]))
+  else newfram[[vr]] <- rep(fixed[[vr]], nrw)
+ }
+#
+# Calculate predicted values (and s.e.s, if requested)
+#
+print(newfram)
+
+if(!is.null(cpue.fit)) {
+  predval <- predict.glm(cpue.fit, newfram, type ="response", se.fit = se.fit)
+  if(!se.fit)
+   predval <- list(fit = predval)
+  cpue.is.log <- as.character(formula(cpue.fit))[2] =="lcpue"
+  if(!log.scale & cpue.is.log) {
+   predval$fit <- exp(predval$fit)
+   if(se.fit) predval$se.fit <- predval$se.fit *predval$fit
+  }
+  else if(log.scale & is.null(nonzero.fit) & !cpue.is.log)
+   stop("No code written for this possibility")
+  if(!is.null(nonzero.fit)) {
+   tmp <- predict.glm(nonzero.fit, newfram, type = "response", se.fit = se.fit)
+   if(!se.fit)
+    tmp <- list(fit = tmp)
+   if(se.fit)
+    predval$se.fit <- sqrt((predval$fit * tmp$se.fit)^2 + (tmp$fit * predval$se.fit)^2)
+   predval$fit <- predval$fit * tmp$fit
+  }
+ }
+ else {
+  predval <- predict.glm(nonzero.fit, newfram, type ="response", se.fit = se.fit)
+  if(!se.fit)
+   predval <- list(fit = predval)
+ }
+ if(multiple) {
+  predval$fit <- matrix(predval$fit, length(xvar), dimnames =list( xlev, zlev))
+  if(se.fit) predval$se.fit <- matrix(predval$se.fit,length(xvar),dimnames = list(xlev, zlev))
+ }
+#
+# Calculate predval$nobs - number of observations per level of variables -
+# if variable[1] is a factor, and set predicted values to NA when
+# predval$nobs==0
+#
+ if(is.factor(data[[variable[1]]])) {
+  v1 <- if(is.null(nonzero.fit)) data[[variable[1]]][nonz] else data[[variable[1]]]
+  if(multiple) {
+   v2 <- if(is.null(nonzero.fit)) data[[variable[2]]][nonz]  else data[[variable[2]]]
+   predval$nobs <- if(is.factor(v1)) table(v1,v2)
+   else matrix(rep(table(v2), length(xvar)),length(xvar),byrow = T)
+  }
+  else {
+   predval$nobs <- if(is.factor(v1)) table(v1) else
+      predval$nobs <- rep(nmin, length(xvar))
+  }
+  sel <- predval$nobs == 0
+  if(any(sel)) {
+   predval$fit[sel] <- NA
+   if(se.fit) predval$se.fit[sel] <- NA
+  }
+ }
+#
+# Plot predicted values (if required)
+#
+ if(plotit) {
+  y <- predval$fit
+  if(nmin > 0)
+   y[predval$nobs < nmin] <- NA
+  if(is.null(ylab)) {
+   ylab <- if(is.null(cpue.fit)) "Expected probability of non-zero catch"
+     else if(is.null(nonzero.fit)) "Expected non-zero catch rate"
+   else "Expected catch rate"
+   if(multiple) ylab <- paste(ylab, "by", variable[2])
+  }
+  if(is.null(xlab)) xlab <- variable[1]
+  if(multiple) {
+    plot(xvar, y[, 1], type = type, ylim = c(0, max(y,na.rm = T)), yaxs = "r", xlab = xlab, ylab= ylab, xaxt = xaxt, xlim = range(xvar), pch= "1", ...)
+    for(i in 2:ncol(y))
+      lines(xvar, y[, i], type = type, pch =paste(i), col = i)
+  } else {
+    plot(xvar, y, type = type, ylim = c(0, max(y, na.rm =T)), yaxs = "r", xlab = xlab, ylab = ylab, xlim = range(xvar), xaxt = xaxt, ...)
+  }
+  if(xaxt == "n")
+   axis(1, xvar, xlev)
+  if(plotvalues) {
+    vals<-lapply(fixed,function(x) if(is.numeric(x)) round(x,1) else x)
+    text(min(xvar)+0.02*diff(range(xvar)),max(y,na.rm=T)*0.98,paste(paste(names(fixed), "=",as.vector(unlist(vals))), collapse = "\n"),adj=0)
+  }
+  cat("\n\n")
+  cat(paste(paste(names(fixed), "=",as.vector(unlist(fixed))), collapse = "\n"))
+  cat("\n\n")
+ }
+#
+# Return predicted values (with s.e.s and/or numbers of observations
+# and/or fixed, if required)
+#
+ if(incl.fixed)
+  predval$fixed <- unlist(fixed)
+ predval <- predval[c("fit", "se.fit", "nobs", "fixed")[c(T,se.fit,nobs, incl.fixed)]]
+ if(length(predval) == 1)
+  predval[[1]]
+ else predval
+}
+
+
+
+plot.predictCPUE <- function(variable, data, cpue.fit = NULL, nonzero.fit = NULL, xcts = F,
+             fixed = list(), nmin = 0, plotit=F, se.fit = T, nobs = (nmin > 0),
+             incl.fixed = F, log.scale = F, type = "l", ylab = NULL, xlab = NULL,axis.labels=TRUE,at=NULL,labels=NULL,plot.se=T,se.lty=1,
+             plotvalues=T,xlim=NULL,ylim=NULL,scale=F,...)
+
+  {
+    RESULTS <- predictCPUE(variable, data, cpue.fit, nonzero.fit, xcts,
+             fixed, nmin, plotit, se.fit, nobs,incl.fixed, log.scale, type, ylab,xlab,
+             plotvalues,xlim,...)
+
+    #tmp.x <- 1:length(RESULTS$fit)
+    tmp.x <- if(type=="l"){as.numeric(names(RESULTS$fit))}else{1:length(RESULTS$fit)}    
+    tmp.y <- RESULTS$fit
+    tmp.se <- RESULTS$se.fit
+    if(scale){
+        if(plot.se) stop("can not plot std when fits are scaled!")
+        tmp.y=tmp.y/mean(tmp.y)
+    }
+    if(is.null(xlim)==TRUE){
+        xlim <- if(type == "l"){c(min(pretty(tmp.x)), max(pretty(tmp.x)))}else{c(1,length(tmp.x))}
+    }
+
+    if(is.null(ylim)==TRUE){
+        ylim <- c(floor(min(tmp.y - 2*tmp.se, na.rm=TRUE)), ceiling(max(tmp.y + 2*tmp.se, na.rm=TRUE)))
+    }
+    
+    #if(is.null(xlim)==TRUE)
+    #  {xlim <- c(1,length(tmp.x))}
+
+    #if(is.null(ylim)==TRUE)
+    #  {ylim <- c(0,ceiling(max(tmp.y,na.rm=TRUE)))}
+
+    plot(tmp.x,tmp.y,type=type,xlim=xlim,ylim=ylim,xlab=xlab,ylab=ylab,xaxt="n",...)
+        
+    if(plot.se==TRUE){
+        if(type=="l")
+          {
+            points(tmp.x,tmp.y+(2*tmp.se),type="l",lty=se.lty)
+            points(tmp.x,tmp.y-(2*tmp.se),type="l",lty=se.lty)
+          }
+        else
+          {
+            segments(tmp.x,tmp.y,tmp.x,tmp.y + (2*tmp.se))
+            segments(tmp.x,tmp.y,tmp.x,tmp.y - (2*tmp.se))
+          }
+    }
+    if(axis.labels==TRUE){
+        if(is.null(labels)){
+            labels = names(RESULTS$fit)
+        }
+        if(is.null(at)){
+            at =tmp.x
+        }
+        axis(1,at=at,labels=labels)
+    }
+    
+    return(RESULTS)
+  }
+
+
+
+
+plot.retained.predictors <- function(object, labels=NULL, log.scale=TRUE, plotvalues=FALSE, se.fit=TRUE, sort.vars=TRUE, do.layout=TRUE)
+{
+    # Need a little bit of sleight of hand to get around the
+    # (possible) presence of interaction terms in the retained
+    # predictors. Do this by adding any interaction terms on to the
+    # end of the DRAW list, but first remove any possible interaction
+    # terms from all available retained predictors.
+
+    # This is going to need another rewrite to deal with (arbitrary)
+    # interaction terms...
+
+    DATA <- object$data
+
+    ATTR <- attributes(object$terms)$term.labels
+
+    if(length(grep(":", ATTR)) > 0)
+    {ATTRnoI <- ATTR[-grep(":", ATTR)]}
+    else
+    {ATTRnoI <- ATTR}
+
+    DRAW <- names(unlist(sapply(names(DATA), grep, ATTRnoI)))
+
+    #DRAW <- names(unlist(sapply(names(DATA), grep, attributes(object$terms)$term.labels)))
+
+    if(sort.vars)
+    {DRAW <- sort(DRAW)}
+    
+    N <- length(DRAW)
+    newN <- if(((N/2) - floor(N/2)) > 0){N + 1}else{N}
+    matN <- matrix(1:newN, ncol=2, byrow=TRUE)
+
+    if(do.layout)
+    {
+        par(mai=par("mai")/2)
+        par(oma=c(3, 3, 1, 1))
+        layout(matN)
+    }
+
+    if(is.null(labels))
+    {
+        labels <- DRAW
+    }
+
+    if(!is.null(labels))
+    {
+        if(length(labels) != length(DRAW))
+        {stop("The length of your labels vector does not equal the number of retained predictors in your model")}
+    }
+
+    print(data.frame("Retained.variables"=DRAW, "Axis.labels"=labels))
+    cat("\n")
+    
+    for(i in 1:length(DRAW))
+    {
+        # I need to rationalise what's going on here so I can follow it next time!
+        
+        PRETTY <- if(is.factor(DATA[[DRAW[i]]]))
+        {
+            levels(DATA[[DRAW[i]]]) 
+        }
+        else
+        {
+            pretty(DATA[[DRAW[i]]])
+        }        
+        
+        plot.type <- if(is.factor(DATA[[DRAW[i]]])){"p"}else{"l"}
+        axis.at <- if(is.factor(DATA[[DRAW[i]]]))
+        {
+            if(DRAW[i] == "vessel_key")
+            {
+                if(length(levels(DATA[[DRAW[i]]])) <=10) 1:length(PRETTY) else seq(1, length(levels(DATA[[DRAW[i]]])), 5)
+                #pretty(c(1, length(levels(DATA[[DRAW[i]]]))))
+                #seq(1, length(levels(DATA[[DRAW[i]]])), 5)
+            }
+            else
+            {1:length(PRETTY)}
+        }
+        else{PRETTY}
+        axis.las <- if(is.factor(DATA[[DRAW[i]]])){3}else{1}
+        axis.labels <- if(is.factor(DATA[[DRAW[i]]])){PRETTY[axis.at]}else{PRETTY}
+        #this.label <- paste("(", letters[i], ") ", labels[i], sep="")
+        this.label <- labels[i]
+
+        ans <- plot.predictCPUE(DRAW[i], DATA, object, log.scale=log.scale, plotvalues=plotvales, se.fit=se.fit, type=plot.type, xlab="", ylab="", axis.labels=FALSE)
+        axis(side=1, at=axis.at, labels=axis.labels, las=axis.las)
+        #just for
+        tmp.x <- if(plot.type=="l"){as.numeric(names(ans$fit))}else{1:length(ans$fit)}
+        text(tmp.x[1], ceiling(max(ans$fit + 2*ans$se.fit, na.rm=TRUE)), this.label, font=2, adj=c(0, 1))
+
+    }
+
+    mtext(side=2, "Expected catch rate", outer=TRUE, line=1)
+    mtext(side=1, "Levels or values of retained predictor variables", outer=TRUE, line=1)
+
+}
+
+
+plblank = function() plot(0,0,xlab="",ylab="",type="n")
+
+
+
+DemoPointsLines<-function()
+{     
+     Pex <- 3 
+     ipch <- 1:(np <- 25+11); k <- floor(sqrt(np)); dd <- c(-1,1)/2
+     rx <- dd + range(ix <- (ipch-1) %/% k)
+     ry <- dd + range(iy <- 3 + (k-1)-(ipch-1) %% k)
+     pch <- as.list(ipch)
+     pch[25+ 1:11] <- as.list(c("*",".", "o","O","0","+","-",":","|","%","#"))
+     plot(rx, ry, type="n", axes = FALSE, xlab = "", ylab = "")
+     #abline(v = ix, h = iy, col = "lightgray", lty = "dotted")
+     for(i in 1:np) {
+       pc <- pch[[i]]
+       points(ix[i], iy[i]+0.5, pch = pc, cex = Pex)
+       ## red symbols with a yellow interior (where available)
+       text(ix[i] - .5, iy[i]+0.5, pc, cex = 1)
+     }
+     ilty=1:6
+     lty=as.list(ilty)
+     for(i in 1:6){
+       lines(x=c(ix[i]-0.5,ix[i]+0.5),y=c(iy[i],iy[i]),lty=lty[[i]],lwd=2)
+     }
+}
+
+
+
+DemoColors <-function()
+{
+	cols <- c("blue","blue1","blue2","blue3","blue4","purple","purple1","purple2","purple3","purple4", 
+                 "green","green1","green2","green3","green4","cyan","cyan1","cyan2","cyan3","cyan4",
+                 "coral","coral1","coral2","coral3","coral4","tomato","tomato1","tomato2","tomato3","tomato4",
+		   "red", "red1", "red2","red3","red4","brown","brown1","brown2","brown3","brown4",
+                 "plum","plum1", "plum2","plum3","plum4","orchid","orchid1","orchid2","orchid3","orchid4",
+                 "tan","tan1","tan2","tan3","tan4","wheat","wheat1","wheat2","wheat3","wheat4",
+                 "pink1","pink1","pink2","pink3","pink3","orange","orange1","orange2","orange3","orange4",
+                 "yellow","yellow1","yellow2","yellow3","yellow4","gold","gold1","gold2","gold3","gold4",
+		   "gray10","gray20","gray30","gray40","gray50","gray60","gray70","gray80","gray90","gray100",	
+	          "ivory","ivory1","ivory2","ivory3","ivory4","khaki","khaki1","khaki2","khaki3","khaki4"
+               )
+        ncols <-100
+        dd <- c(-1,1)/2
+        ix<-rep(1:10,10);
+        iy=rep(1:10,each=10);
+        rx <- dd + range(ix)
+        ry <- dd + range(iy)
+        plot(rx, ry, type="n", axes = FALSE, xlab = "", ylab = "")
+        for(i in 1:ncols){
+        	polygon(x=c(ix[i]-0.25,ix[i]-0.25,ix[i]+0.25,ix[i]+0.25),
+                        y=c(iy[i]-0.25,iy[i]+0.25,iy[i]+0.25,iy[i]-0.25),border=NULL,col=cols[i])
+		text(ix[i], iy[i]-0.5, cols[i], adj=0.5,cex = 0.8)
+        
+            }
+}
+
+
+addTrans <- function(color,trans)
+{
+  # This function adds transparancy to a color.
+  # Define transparancy with an integer between 0 and 255
+  # 0 being fully transparant and 255 being fully visable
+  # Works with either color and trans a vector of equal length,
+  # or one of the two of length 1.
+
+  if (length(color)!=length(trans)&!any(c(length(color),length(trans))==1)) stop("Vector lengths not correct")
+  if (length(color)==1 & length(trans)>1) color <- rep(color,length(trans))
+  if (length(trans)==1 & length(color)>1) trans <- rep(trans,length(color))
+
+  num2hex <- function(x)
+  {
+    hex <- unlist(strsplit("0123456789ABCDEF",split=""))
+    return(paste(hex[(x-x%%16)/16+1],hex[x%%16+1],sep=""))
+  }
+  rgb <- rbind(col2rgb(color),trans)
+  res <- paste("#",apply(apply(rgb,2,num2hex),2,paste,collapse=""),sep="")
+  return(res)
+}
+
+image.scale <- function (z, col, x, y = NULL, size = NULL, digits = 2, labels = c("breaks", "ranges"),values=TRUE, breaks=NULL, label.text=NULL, title.add=TRUE,title.text=NULL,title.adj=c(0.5,0),title.cex=0.8,box.scale=FALSE)
+{
+    # Credit to Jonathan Rougier (J.C.Rougier@durham.ac.uk)
+    # Post to R-Help mailing list Tue, 21 Sep 1999 08:56:30 +0100 (BST)
+
+    # MJM 1 Oct 2004: Added arguments "values" and "breaks" : if "values"=TRUE, use equidistant points from min(z) to max(z) where n=length(col), otherwise a specified vector of "breaks"\
+    # MJM 4 Oct 2004: Added "add.title" and "title.text"
+    # MJM 2006-08-30: Added bks as an argument and (slightly) restructured the labelling code to allow user-specified break labels
+
+    # --------------------------------------------------------------------------------
+    # sort out the location
+    n <- length(col)
+    usr <- par("usr")
+    mx <- mean(usr[1:2]); my <- mean(usr[3:4])
+    dx <- diff(usr[1:2]); dy <- diff(usr[3:4])
+    if (missing(x))
+        x <- mx + 1.05*dx/2 # default x to right of image
+    else if (is.list(x)) {
+        if (length(x$x) == 2)
+          size <- c(diff(x$x), -diff(x$y)/n)
+        y <- x$y[1]
+        x <- x$x[1]
+    } else x <- x[1]
+    if (is.null(size))
+        if (is.null(y)) {
+          size <- 0.618*dy/n # default size, golden ratio
+          y <- my + 0.618*dy/2 # default y to give centred scale
+        } else size <- (y-my)*2/n
+    if (length(size)==1)
+        size <- rep(size, 2) # default square boxes
+    if (is.null(y))
+        y <- my + n*size[2]/2
+
+    # --------------------------------------------------------------------------------
+    # draw the image scale
+    i <- seq(along = col)
+    if(box.scale==TRUE)
+    {
+        rect(x, y - i * size[2], x + size[1], y - (i - 1) * size[2],col = rev(col), xpd = TRUE, lty=1)
+        #rect(x, y - i * size[2], x + size[1], y - (i - 1) * size[2],col = col, xpd = TRUE, lty=1)
+
+    }
+    else
+    {
+        rect(x, y - i * size[2], x + size[1], y - (i - 1) * size[2],col = rev(col), xpd = TRUE, lty=0)
+        #rect(x, y - i * size[2], x + size[1], y - (i - 1) * size[2],col = col, xpd = TRUE, lty=0)
+        rect(x, y-max(i)*size[2], x+size[1], y, lty=1)
+    }
+
+
+    # --------------------------------------------------------------------------------
+    # Sort out the label positions etc
+    if(!values)
+    {
+        if(is.null(breaks))
+        {stop("values=FALSE but no breaks supplied")}
+
+        if(!(length(breaks)==(n+1)))
+        {stop("Specified number of breaks does not match n+1 specified colours")}
+
+        if(any(diff(breaks) < 0))
+        {stop("breaks are not a vector of increasing numbers")}
+
+        bks <- breaks
+
+    }
+    else
+    {
+        rng <- range(z, na.rm = TRUE)
+        bks <- seq(from = rng[2], to = rng[1], length = n + 1)
+    }
+
+    bks <- formatC(bks, format="f", digits=digits)
+
+    labels <- match.arg(labels)
+    if (labels == "breaks")
+        ypts <- y - c(0, i) * size[2]
+    else {
+        bks <- paste(bks[-1], bks[-(n+1)], sep = " - ")
+        ypts <- y - (i - 0.5) * size[2]
+    }
+
+    # --------------------------------------------------------------------------------
+    # Now sort out what label strings we will use
+    # SB reversed order so 0 at bottom
+
+    if(is.null(label.text))
+    {
+
+        # If the user has not specified a vector of scale labels,
+        # we'll use the (possibly nicely prettified) calculated bks
+
+        #label.text <- rev(bks)
+        label.text <- bks
+    }
+    else
+    {
+        # Otherwise, we'll use what the user has specified
+        #label.text <- rev(label.text)
+        label.text <- label.text
+    }
+
+    text(x = x + 1.4 * size[1], y = ypts, labels = label.text, adj = ifelse(size[1]>0, 0, 1), xpd = TRUE,cex=0.7)
+    # SB made text smaller and further away from legend box
+    #text(x = x +3.5 * size[1], y = ypts, labels = label.text, adj = 1, xpd = TRUE,cex=0.8)
+
+    # --------------------------------------------------------------------------------
+    # Add title (requested by default)
+    if(title.add)
+    {
+        if(!is.null(title.text))
+        {TITLE <- title.text}
+        else
+        {TITLE <- "Key"}
+
+        text(x-0.5*size[2],y+((diff(i) * size[2])),labels=TITLE,adj=title.adj,cex=title.cex,pos=4,offset=0.5)
+        #text(x,y+(0.5*(diff(i) * size[2])),labels=TITLE,adj=title.adj,cex=0.8,pos=4,offset=0.5)#<-- Position the title half a rect higher than the rest...
+
+
+    }
+}
+
+
+
+########################################
+##### Drawing functions                      
+########################################
+
+SW <- function(std=NULL,width=NULL,height=NULL,size=NULL,pointsize=NULL,rescale=NULL,bg=NULL,mar=NULL,oma=NULL,xaxs=NULL,yaxs=NULL,las=NULL,mfrow=NULL,...)
+{
+     if(is.null(pointsize))
+         pointsize <- 10
+     if(is.null(rescale))
+         rescale = "fixed"
+     if(is.null(bg))
+         bg = "white"
+     if(is.null(size))
+         size=1
+     if(is.null(xaxs))
+         xaxs="r"
+     if(is.null(yaxs))
+         yaxs="r"
+     if(is.null(las))
+         las=0
+     if(is.null(mar))
+         mar=c(5.1,4.1,4.1,2.1);
+     if(is.null(oma))
+         oma=c(0,0,0,0);  
+     if(is.null(std)){
+         if(is.null(width)) width= (21/2.54)*0.8;
+         if(is.null(height)) height=(29.7/2.54)*0.8*size;
+         if(is.null(mfrow)) mfrow=c(1,1);
+     } else if (std==0){
+         if(is.null(width)) width=7;
+         if(is.null(height)) height=7;
+         if(is.null(mfrow)) mfrow=c(1,1);
+    } else if (std==1){
+            width=5.75;height=7.4
+            if(is.null(mfrow)) mfrow=c(2,1)       
+   } else {
+           stop(paste("std=",std,",not supported!",sep="")) 
+    }           
+   windows.options(reset=TRUE)  
+   windows(width=width,height=height,pointsize=pointsize,rescale=rescale,bg=bg)
+   par(mar=mar,oma=oma,mfrow=mfrow,xaxs=xaxs,yaxs=yaxs,las=las,...)
+}
+
+
+"new.graph" <-
+function(size=1,pointsize=10,xaxs="i",yaxs="i",las=1,...) {
+  windows.options(reset=TRUE)
+  # Set up window size: Make sure this agrees with SavePlot
+  width<-(21/2.54)*0.8
+  height<-(29.7/2.54)*0.8
+  windows(width=width,height=height*size,pointsize=pointsize,bg="white",rescale="fixed")
+  # Set sefault par parameters
+  par(xaxs = xaxs, yaxs = yaxs, las = las, ...)
+  .par<<-par(no.readonly = TRUE)
+  .par$size<<-size
+  .par$pointsize<<-pointsize
+  invisible()
+}
+
+
+Boxplot <- function (x,name = names(x),medlwd = 2, staplewex = 0, staplehex = 0, outpch = 1, outline = F, whisklty = 1,  range = 0,...) 
+{
+    old.par <- par("tcl")
+    par(tcl = 0)
+    if (missing(name) || is.null(name)) 
+        name <- F
+    centers <- boxplot(x, names = name,medlwd = medlwd, staplewex = staplewex, staplehex = staplehex, outpch = outpch, outline = outline, whisklty = whisklty,  range = range, ...)
+    par(tcl = old.par)
+    invisible(1:length(x))
+}
+
+
+
+draw.bubble <- function(mat,xat=1:ncol(mat),yat=1:nrow(mat),xnames.arg=colnames(mat),ynames.arg=rownames(mat),
+ 				rescale=FALSE,fg="black",bg="lightgrey",main = NULL, xlab = NULL, ylab = NULL,inches=TRUE,plot.NA=F,add=F,...)
+  {
+    #from Dan, best of best
+    nx <- ncol(mat)
+    ny <- nrow(mat)
+    xlim=c(1,nx)
+    ylim=c(1,ny)
+
+    tmp.x <- 1:ncol(mat)
+    tmp.y <- 1:nrow(mat)
+    tmp.z <- as.vector(mat)
+    tmp.x <- unlist(lapply(tmp.x,rep,ny))
+    tmp.y <- rep(tmp.y,nx)
+    tmp.z <- sqrt(tmp.z/pi)    
+    
+    if(rescale){
+       inches.mat <- inches*sqrt(mat/rescale) # because need to plot circle one at a time to deal with NA
+       inches <- inches*sqrt(Max(mat)/rescale)     
+    } else {
+       inches.mat <- inches*sqrt(mat) # because need to plot circle one at a time to deal with NA
+       inches <- inches*sqrt(Max(mat))     
+   }        
+    mat <- sqrt(mat/pi)
+    if(add==F){
+        plot.new();
+        plot.window(xlim=xlim,ylim=ylim,xaxt="n",yaxt="n")
+    }
+    if(plot.NA){
+       tmp.z <- ifelse(is.na(tmp.z),0,tmp.z)
+       symbols(tmp.x,tmp.y,circles=tmp.z,inches=inches,add=TRUE,fg=fg,bg=bg,...)
+    }else{
+       for(j in 1:ny){
+           for(i in 1:nx){
+               if(!is.na(mat[j,i])) 
+                   symbols(i,j,circles=mat[j,i],inches=inches.mat[j,i],add=TRUE,fg=fg,bg=bg,...)
+           }
+       }
+}
+
+    box()
+    axis(1,at=xat,labels=xnames.arg)
+    axis(2,at=yat,labels=ynames.arg)
+    title(main=main,xlab=xlab,ylab=ylab)
+   
+  }
+
+
+
+draw.bubble.pie <- function(x,y,z,kat,xlevels=NULL,ylevels=NULL,katlevels=NULL, pal=terrain.colors(length(levels(as.factor(kat))))
+                            ,xat,yat,xnames.arg,ynames.arg,rescale=FALSE,fg="black",bg="NA",main = NULL, xlab = NULL, ylab = NULL,inches=TRUE)
+{
+  
+    x <- re.factor(x,xlevels)
+    y <- re.factor(y,ylevels)
+    kat <- re.factor(kat,katlevels)
+    cID <- paste(x,y)
+    nl <- length(levels(as.factor(kat)))
+    if(length(pal) != length(levels(kat)))
+        stop("length of pal not equal to the number of levels for kat")
+    mat <- tapply(z,list(y,x),FUN=Sum)
+    if(missing(xat)) xat=1:ncol(mat)
+    if(missing(yat)) yat=1:nrow(mat)
+    if(missing(xnames.arg)) xnames.arg=colnames(mat)
+    if(missing(ynames.arg)) ynames.arg=rownames(mat)    
+    nx <- ncol(mat)
+    ny <- nrow(mat)
+    xlim=c(1,nx)
+    ylim=c(1,ny)
+
+    tmp.x <- 1:ncol(mat)
+    tmp.y <- 1:nrow(mat)
+    tmp.z <- as.vector(mat)
+    tmp.x <- unlist(lapply(tmp.x,rep,ny))
+    tmp.y <- rep(tmp.y,nx)
+
+    cIDlevels <-  paste(unlist(lapply(levels(x),rep,ny)), rep(levels(y),nx))
+    cID <- re.factor(cID,cIDlevels)
+    tt <- tapply(z,list(kat,cID),Sum)
+    tt <- ifelse(is.na(tt),0,tt)
+    
+    
+    if(rescale){
+       inches <- inches*sqrt(tmp.z/rescale) # because need to plot circle one at a time to deal with NA
+    } else {
+       inches <- inches*sqrt(tmp.z) # because need to plot circle one at a time to deal with NA
+    }
+    tmp.z <- sqrt(tmp.z/pi)
+    
+    plot.new();
+    plot.window(xlim=xlim,ylim=ylim,xaxt="n",yaxt="n")
+    for(i in 1:length(tmp.z)){
+       if(!is.na(tmp.z[i])){         
+            #symbols(tmp.x[i],tmp.y[i],circles=tmp.z[i],inches=inches[i],add=TRUE,fg=fg,bg=bg)
+            if(sum(tt[,i])==0) next
+            tp <- pi/2 - 2*pi*c(0,cumsum(tt[,i])/sum(tt[,i])) #torespontok
+            for (j in 1:nl) {
+                if (tp[j+1]==tp[j]) next
+                pp <- seq(tp[j], tp[j+1],length=floor((tp[j]-tp[j+1])*4)+2) #polygon-pontok
+                rx <- xinch(inches[i])
+                ry <- yinch(inches[i])
+                xi <- tmp.x[i]+c(0,rx*cos(pp))
+                yi <- tmp.y[i]+c(0,ry*sin(pp))
+                polygon(xi,yi, col=pal[j], border=NA)
+            }
+           polygon(tmp.x[i]+rx*cos((1:180)*pi/90),tmp.y[i]+ry*sin((1:180)*pi/90), col=NA, border=fg)
+        }
+     }
+
+    box()
+    axis(1,at=xat,labels=xnames.arg)
+    axis(2,at=yat,labels=ynames.arg)
+    title(main=main,xlab=xlab,ylab=ylab)
+    return (Max(mat))
+}
+
+draw.bubble.arc <- function(mat,proportions,rescale,inches,...){
+    # the proportions is a matrix of the same dimention as mat, with the each element
+    # reprenting the proportion within each cell of mat
+    nx <- ncol(mat)
+    ny <- nrow(mat)    
+    if(rescale){
+       inches.mat <- inches*sqrt(mat/rescale) # because need to plot circle one at a time to deal with NA
+       inches <- inches*sqrt(Max(mat)/rescale)     
+    } else {
+       inches.mat <- inches*sqrt(mat) # because need to plot circle one at a time to deal with NA
+       inches <- inches*sqrt(Max(mat))     
+    }        
+    mat <- sqrt(mat/pi)
+    for(j in 1:ny){
+        for(i in 1:nx){
+            if(!is.na(proportions[j,i]) & !is.na(mat[j,i])){
+                rx <- xinch(inches.mat[j,i])
+                ry <- yinch(inches.mat[j,i])
+                angles <- seq(-round(proportions[j,i]*180),round(proportions[j,i]*180),by=1)/360*2*pi
+                x <- i+rx*cos(angles)
+                y <- j+ry*sin(angles)
+                polygon(c(i,x),c(j,y),...)      
+           }
+       }
+    }
+}
+
+draw.bubble.cross <- function(mat,proportions,rescale,inches,byrow=T,...){
+    # the proportions is a matrix of the same dimention as mat, with the each row (if byrow=T, otherwise column)representing
+    # a vector of proportions summing up to one, and the largest proportion within each row should
+    # have the same radious as the largest bubble for that row
+    # This is ususally used to show whether sampling is representative of the catch with respect to
+    # a coviriate
+    nx <- ncol(mat)
+    ny <- nrow(mat)    
+    if(rescale){
+       inches.mat <- inches*sqrt(mat/rescale) # because need to plot circle one at a time to deal with NA
+       inches <- inches*sqrt(Max(mat)/rescale)     
+    } else {
+       inches.mat <- inches*sqrt(mat) # because need to plot circle one at a time to deal with NA
+       inches <- inches*sqrt(Max(mat))     
+    }
+    if(byrow){
+        for(j in 1:ny){
+            sum.mat <- Sum(mat[j,])
+            for(i in 1:nx){
+                if(!is.na(proportions[j,i])){
+                    rx <- xinch(inches.mat[j,i]*sqrt((proportions[j,i]/(mat[j,i]/sum.mat)))) 
+                    ry <- yinch(inches.mat[j,i]*sqrt((proportions[j,i]/(mat[j,i]/sum.mat))))
+                    segments(i-rx,j,i+rx,j,...)
+                    segments(i,j+ry,i,j-ry,...)
+                }
+            }
+        }
+    } else {
+        for(i in 1:nx){
+            sum.mat <- Sum(mat[,i])
+            for(j in 1:ny){
+                if(!is.na(proportions[j,i])){
+                    rx <- xinch(inches.mat[j,i]*sqrt((proportions[j,i]/(mat[j,i]/sum.mat)))) 
+                    ry <- yinch(inches.mat[j,i]*sqrt((proportions[j,i]/(mat[j,i]/sum.mat))))
+                    segments(i-rx,j,i+rx,j,...)
+                    segments(i,j+ry,i,j-ry,...)
+                }
+            }
+        }
+        
+    }
+}
+
+
+
+dplot <- function (..., name = T, quantiles = c(0.5), plot.mean = F, main = "Density Plot", xlab = "", ylab = "", ylim, srtx = 0, bw = "nrd0", adjust = 1/3, adj = 0, fill = F, gap = 0.2) 
+{
+    dlines <- function(y, offset, Q, bw, adjust, gap) {
+        y <- y[!is.na(y)]
+        if (min(y) == max(y)) {
+            ans <- list(x = min(y), y = 1)
+            y1 <- ans$x
+            x1 <- ans$y/max(ans$y) * (1 - gap)
+            q.y1 <- quantile(y, probs = c(0, Q, 1))
+            q.x1 <- offset + x1
+            q.x2 <- offset
+            mean.y1 <- mean(y)
+            mean.x1 <- offset + x1
+            mean.x2 <- offset
+        }
+        else {
+            ans <- density(y, n = 100, bw = bw, adjust = adjust, 
+                from = min(y), to = max(y))
+            y1 <- ans$x
+            x1 <- ans$y/max(ans$y) * (1 - gap)
+            q.y1 <- quantile(y, probs = c(0, Q, 1))
+            q.x1 <- offset + approx(y1, x1, xout = q.y1)$y
+            q.x2 <- offset
+            mean.y1 <- mean(y)
+            mean.x1 <- offset + approx(y1, x1, xout = mean.y1)$y
+            mean.x2 <- offset
+            x1 <- c(offset, q.x1[1], offset + x1, rev(q.x1)[1], 
+                offset)
+            y1 <- c(q.y1[1], q.y1[1], y1, rev(q.y1)[1], rev(q.y1)[1])
+        }
+        return(list(x1 = x1, y1 = y1, q.x1 = q.x1, q.y1 = q.y1, 
+            q.x2 = q.x2, mean.x1 = mean.x1, mean.x2 = mean.x2, 
+            mean.y1 = mean.y1))
+    }
+    all.x <- list(...)
+    nam <- character(0)
+    if (is.list(all.x[[1]])) {
+        all.x <- all.x[[1]]
+        if (is.logical(name) && name) 
+            name <- names(...)
+    }
+    n <- length(all.x)
+    centers <- seq(from = 0, by = 1, length = n) + 0.1
+    ymax <- max(sapply(all.x, max, na.rm = T), na.rm = T)
+    if (is.na(ymax)) 
+        stop("Error: list of empty vectors")
+    ymin <- min(sapply(all.x, min, na.rm = T), na.rm = T)
+    xmax <- max(centers) + 0.95
+    xmin <- 0
+    if (gap > 1) 
+        gap <- 0.2
+    if (!missing(ylim)) 
+        plot(c(xmin, xmax), c(ymin, ymax), type = "n", main = main, 
+            xlab = xlab, ylab = ylab, xaxt = "n", ylim = ylim)
+    else plot(c(xmin, xmax), c(ymin, ymax), type = "n", main = main, 
+        xlab = xlab, ylab = ylab, xaxt = "n")
+    for (i in 1:n) {
+        if (length(all.x[[i]][!is.na(all.x[[i]])]) > 0) {
+            plot.values <- dlines(all.x[[i]], centers[i], quantiles, 
+                bw, adjust, gap)
+            if (fill & length(plot.values$x1) > 2) 
+                polygon(plot.values$x1, plot.values$y1, col = fill)
+            lines(plot.values$x1, plot.values$y1)
+            segments(centers[i], min(plot.values$y1), centers[i], 
+                max(plot.values$y1))
+            segments(plot.values$q.x1, plot.values$q.y1, plot.values$q.x2, 
+                plot.values$q.y1)
+            if (plot.mean) 
+                segments(plot.values$mean.x1, plot.values$mean.y1, 
+                  plot.values$mean.x2, plot.values$mean.y1, lwd = 3)
+        }
+    }
+    if (is.logical(name)) {
+        if (name) 
+            axis(1, centers, sapply(substitute(list(...)), deparse)[2:(n + 
+                1)], srt = srtx, adj = if (srtx == 0) 
+                adj
+            else 1)
+    }
+    else axis(1, centers, name, srt = srtx, adj = if (srtx == 
+        0) 
+        adj
+    else 1)
+    invisible(centers)
+}
+
+
+draw.dplot <-function(..., name = T, quantiles = c(0.5), plot.mean = F, main = "Density Plot", xlab = "", ylab = "", ylim=NULL, srtx = 0, draw.axis="xy",log="",plot.levels=FALSE,levels=NULL)
+{
+# revised version to allow for vectors of length 1
+  dlines <- function(y, offset, Q)
+  {
+    y <- y[!is.na(y)]
+    if(min(y) == max(y)) {
+      ans <- list(x = min(y), y = 1)
+      y1 <- ans$x
+      x1 <- ans$y/max(ans$y) * 0.8
+      q.y1 <- quantile(y, probs = c(0, Q, 1))
+      q.x1 <- offset + x1
+      q.x2 <- offset
+      mean.y1 <- mean(y)
+      mean.x1 <- offset + x1
+      mean.x2 <- offset
+    }
+    else {
+      ans <- density(y, from = min(y), to = max(y))
+      y1 <- ans$x
+      x1 <- ans$y/max(ans$y) * 0.8
+      q.y1 <- quantile(y, probs = c(0, Q, 1))
+      q.x1 <- offset + approx(y1, x1, xout = q.y1)$y
+      q.x2 <- offset
+      mean.y1 <- mean(y)
+      mean.x1 <- offset + approx(y1, x1, xout = mean.y1)$y
+      mean.x2 <- offset
+    }
+    return(list(x1 = offset + x1, y1 = y1, q.x1 = q.x1, q.y1 = q.y1, q.x2 = q.x2, mean.x1 = mean.x1, mean.x2 = mean.x2, mean.y1 = mean.y1)
+      )
+  }
+  all.x <- list(...)
+#  print(names(all.x))
+  nam <- character(0)
+  if(is.list(all.x[[1]])) {
+    all.x <- all.x[[1]]
+    if(is.logical(name) && name)
+      name <- names(...)
+  }
+#  print(names(all.x))
+
+
+  if(plot.levels)
+    {
+      n <- length(all.x)
+      #centers <- seq(from = 0, by = 1.0, length = n) + 0.1
+      centers <- (match(names(all.x),levels)-1)+0.1
+      centers.all <- (seq(1,length(levels),1)-1)+0.1
+      ymax <- max(sapply(all.x, max, na.rm = T),na.rm=T)
+      if(is.na(ymax)) stop("Error: list of empty vectors")
+      ymin <- min(sapply(all.x, min, na.rm = T),na.rm=T)
+      #xmax <- max(centers) + 0.95
+      xmax <- (length(levels)-1)+0.95
+      xmin <- 0      
+    }
+  else
+    {
+      n <- length(all.x)
+      centers <- seq(from = 0, by = 1.0, length = n) + 0.1
+      ymax <- max(sapply(all.x, max, na.rm = T),na.rm=T)
+      if(is.na(ymax)) stop("Error: list of empty vectors")
+      ymin <- min(sapply(all.x, min, na.rm = T),na.rm=T)
+      xmax <- max(centers) + 0.95
+      xmin <- 0
+    }
+  
+
+#  if(!missing(ylim)) plot(c(xmin, xmax), c(ymin, ymax), type = "n", main = main, xlab = xlab, ylab = ylab, xaxt = "n", ylim=ylim)
+#  else plot(c(xmin, xmax), c(ymin, ymax), type = "n", main = main, xlab = xlab, ylab = ylab, xaxt = "n")
+  
+  if(!missing(ylim))
+    {
+      plot(c(xmin, xmax), c(ymin, ymax), type = "n", main = main, xlab = xlab, ylab = ylab, xaxt = "n", yaxt="n",ylim=ylim,log=log)
+      if(draw.axis=="xy"||draw.axis=="yx"||draw.axis=="y")
+        {
+          if(is.null(levels)){  
+              axis(2)
+          }else{
+              axis(2,at=1:length(levels),labels=levels,las=1)
+          }
+        }
+    }
+  else
+    {
+      plot(c(xmin, xmax), c(ymin, ymax), type = "n", main = main, xlab = xlab, ylab = ylab, xaxt = "n",yaxt="n", ylim=ylim,log=log)
+      if(draw.axis=="xy"||draw.axis=="yx"||draw.axis=="y")
+        {
+            axis(2)
+      }
+    }
+  
+  for(i in 1:n) {
+    if(length(all.x[[i]][!is.na(all.x[[i]])]) > 0) {
+      #print(length(all.x[[i]]))
+      plot.values <- dlines(all.x[[i]], centers[i], quantiles)
+      lines(plot.values$x1, plot.values$y1)#,lwd=0.1)
+      segments(centers[i], min(plot.values$y1), centers[i], max(plot.values$y1))
+      segments(plot.values$q.x1, plot.values$q.y1, plot.values$q.x2, plot.values$q.y1)
+      if(plot.mean)
+        segments(plot.values$mean.x1, plot.values$mean.y1, plot.values$mean.x2, plot.values$mean.y1)#, lwd = 1)
+      }
+  }
+  if(is.logical(name)) {
+    if(name)
+      if(draw.axis=="xy"||draw.axis=="yx"||draw.axis=="x")
+        {
+          if(plot.levels)
+            {axis(1, centers.all, levels, srt = srtx, adj = if(srtx == 0) 0.5 else 1)}
+          else
+            {axis(1, centers, sapply(substitute(list(...)), deparse)[2:(n + 1)], srt = srtx, adj = if(srtx == 0) 0.5 else 1)}
+        }
+  }
+  else
+    if(draw.axis=="xy"||draw.axis=="yx"||draw.axis=="x")
+      {
+        if(plot.levels)
+          {axis(1, centers.all, levels, srt = srtx, adj = if(srtx == 0) 0.5 else 1)}
+        else
+          {axis(1, centers, name, srt = srtx, adj = if(srtx == 0) 0.5 else 1)}
+      }
+  invisible(centers)
+}
+
+hexbinpie <- function(x, y, z,kat,xbnds=range(x), ybnds=range(y),xbin=20,shape=1,
+   pal=terrain.colors(length(levels(as.factor(kat)))),
+   hex="gray", circ=NA, cnt="black", ...) {
+  # A small modification on original hexbinpie by calculating the proportion of z for each level of kat at each cell   \
+  require(hexbin)
+  hb  <- hexbin(x, y, xbnds=xbnds, ybnds=ybnds, IDs=TRUE, xbin = xbin,shape=shape )
+  hbc <- hcell2xy(hb)
+  rx  <- diff(hb@xbnds) / (2 * hb@xbins)
+  ry  <- diff(hb@ybnds) / (2 * hb@xbins*hb@shape)
+  hexC <-  hexcoords(dx=rx, dy=ry/sqrt(3), n=1)
+  nl <- length(levels(as.factor(kat)))
+  ztab <- tapply(z,hb@cID,Sum)
+  zbnds <- quantile(ztab,prob=c(.05,.95), na.rm=TRUE )
+  maxztab <- max(ztab)
+  zz <- pmax(pmin(sqrt(ztab/zbnds[2]),1),0.2)
+  tt <- tapply(z,list(kat,hb@cID),Sum)
+  tt <- ifelse(is.na(tt),0,tt)
+  for (i in seq(along=zz)) {
+    if (!is.na(hex)) polygon(hbc$x[i]+hexC$x, hbc$y[i]+hexC$y, col=NA,border=hex)
+    if(sum(tt[,i])==0) next
+    tp <- pi/2 - 2*pi*c(0,cumsum(tt[,i])/sum(tt[,i])) #torespontok
+    for (j in 1:nl) {
+      if (tp[j+1]==tp[j]) next
+      pp <- seq(tp[j], tp[j+1],
+         length=floor((tp[j]-tp[j+1])*4)+2) #polygon-pontok
+      xi <- hbc$x[i]+c(0,zz[i]*rx*cos(pp))
+      yi <- hbc$y[i]+c(0,zz[i]*ry*sin(pp))
+      polygon(xi,yi, col=pal[j], border=NA)
+      }
+    if (!is.na(circ)) polygon(hbc$x[i]+rx*zz[i]*cos((1:18)*pi/9),
+       hbc$y[i]+ry*zz[i]*sin((1:18)*pi/9), col=NA, border=circ)
+    }
+  return (maxztab)
+  }
+
+plotcircles<- function(x, y, size = 1, xlab = NULL, ylab = NULL, ...)
+{
+# Scatterplot with circle size indexing third variable
+# GKS 10 September 1997
+#
+call <- match.call()
+if(is.null(xlab))
+  xlab <- deparse(call$x)
+if(is.null(ylab))
+  ylab <- deparse(call$y)
+plot(x, y, xlab = xlab, ylab = ylab, type = "n", ...)
+symbols(x, y, add = T, circles = sqrt(size), inches = 0.25, ...)
+invisible()
+}
+
+
+
+plotCI <- function (x, y = NULL, uiw, liw = uiw, aui=NULL, ali=aui,
+                    err="y", ylim=NULL, xlim=NULL, sfrac = 0.01, gap=0, add=FALSE,
+                    col=par("col"), lwd=par("lwd"), slty=par("lty"), xlab=NULL,
+                    ylab=NULL, main="", pt.bg = NA, scol=col,
+                    axes=TRUE, ...)  {
+# from Bill Venables, R-list
+  if (is.list(x)) {
+    y <- x$y
+    x <- x$x
+  }
+  if (is.null(y)) {
+    if (is.null(x))
+      stop("both x and y NULL")
+    y <- as.numeric(x)
+    x <- seq(along = x)
+  }
+  if (missing(xlab)) xlab <- deparse(substitute(x))
+  if (missing(ylab)) ylab <- deparse(substitute(y))
+  if (missing(uiw)) {  ## absolute limits
+    ui <- aui
+    li <- ali
+  }
+  else {  ## relative limits
+    if (err=="y") z <- y else z <- x
+    ui <- z + uiw
+    li <- z - liw
+  }
+  if (err=="y" & is.null(ylim))
+    ylim <- range(c(y, ui, li), na.rm=TRUE)
+  else
+    if (err=="x" & is.null(xlim))
+      xlim <- range(c(x, ui, li), na.rm=TRUE)
+  if (!add)
+    plot(x, y, ylim = ylim, xlim = xlim, col=col, lwd=lwd, xlab=xlab, ylab=ylab,
+         main=main, type="n", axes=axes, ...)
+  if (gap==TRUE) gap <- 0.01  ## default gap size
+  ul <- c(li, ui)
+  if (err=="y") {
+    ## draw vertical segments
+    gap <- rep(gap,length(x))*diff(par("usr")[3:4])
+    segments(x , li, x, pmax(y-gap,li), col=scol, lwd=lwd, lty=slty)
+    segments(x , ui, x, pmin(y+gap,ui), col=scol, lwd=lwd, lty=slty)
+    ## horizontal segments
+    x2 <- c(x, x)
+    smidge <- diff(par("usr")[1:2]) * sfrac
+    segments(x2 - smidge, ul, x2 + smidge, ul, col=scol, lwd=lwd)
+  }
+  else if (err=="x") {
+    ## draw horizontal segments
+    gap <- rep(gap,length(x))*diff(par("usr")[1:2])
+    segments(li, y, pmax(x-gap,li), y, col=scol, lwd=lwd, lty=slty)
+    segments(ui, y, pmin(x+gap,ui), y, col=scol, lwd=lwd, lty=slty)
+    ## vertical segments
+    y2 <- c(y, y)
+    smidge <- diff(par("usr")[3:4]) * sfrac
+    segments(ul, y2 - smidge, ul, y2 + smidge, col=scol, lwd=lwd)
+  }
+  ## _now_ draw the points (in case we want to have "bg" set for points)
+  points(x, y, col=col, lwd=lwd, bg=pt.bg, ...)
+  invisible(list(x = x, y = y))
+}
+
+#
+
+plot.agecircles <- function(mat, b4spawn, expand = 1, xlab = "Year", ylab = "Year class", plotit
+	 = T, ylim = NULL, xlim = NULL, only5thcohorts = T)
+{
+#
+# Given a matrix in which each column is a vector of numbers (or proportions)
+# at age for a given year, makes a bubble plot in which each of these vectors
+# is represented as a vertical line of circles (areas proportional to the
+# vector values) and bubbles at the same horizontal level are from the
+# same year class.  dimnames(mat) should contain ages and years.  
+#
+# b4spawn: T if sample was collected before the spawning season in that
+#     fishing year.
+# (NB year.class = sample.year - age - ifelse(b4spawn,1,0))
+#
+# When expand = 1 the size of the biggest circle is adjusted so that it would
+# just touch (either horizontally or vertically, whichever is closer) an
+# adjacent circle of the same size.  When expand != 1 all circle radii are
+# multiplied by expand.
+#
+        original.mat <- mat
+        mat <- sqrt(abs(mat))
+	yrs <- as.numeric(dimnames(mat)[[2]])
+	nyr <- dim(mat)[2]
+	ages <- as.numeric(dimnames(mat)[[1]])
+	nage <- dim(mat)[1]
+	yrcl <- matrix(0, nage, nyr)
+	for(i in 1:nyr)
+		yrcl[, i] <- yrs[i] - ages - ifelse(b4spawn, 1, 0)
+	ylim <- if(is.null(ylim)) range( - yrcl) + c(-1, 1) else rev( - ylim)
+	xlim <- if(is.null(xlim)) range(yrs) + c(-1, 1) else xlim
+	if(plotit) {
+		plot(0, 0, type = "n", xlim = xlim, ylim = ylim, xlab = xlab, 
+			ylab = ylab, yaxt = "n")
+		uyrcl <- unique(yrcl)
+		#if(only5thcohorts)
+		uyrcl <- uyrcl[uyrcl %% 5 == 0]
+		axis(2,  - uyrcl, paste(uyrcl))
+		#mtext(paste(uyrcl), 2, 0.5, at =  - uyrcl, adj = 1)
+	}
+        pin <- par()$pin
+        usr <- par()$usr
+        xyin=c(pin[1]/(usr[2]-usr[1]),pin[2]/(usr[4]-usr[3]))
+	yrinc <- ifelse(length(yrs) > 1, min(diff(yrs)), 1)
+	maxradxin <- 0.5 * expand * yrinc * xyin[1]
+	maxradyin <- 0.5 * expand * xyin[2]
+	maxradin <- min(maxradxin, maxradyin)
+	tmp <- cos(seq(0, pi, len = 13))
+	max.circle <- list(x = (tmp[c(1:13, 12:1)] * maxradin)/(xyin[1] * max(
+		mat)), y = (tmp[c(7:1, 2:13, 12:7)] * maxradin)/(xyin[2] * max(
+		mat)))
+	if(plotit) {
+		for(i in 1:nyr) {
+			for(j in 1:nage) {
+				polygon(max.circle$x * mat[j, i] + yrs[i], 
+				  max.circle$y * mat[j, i] - yrcl[j, i],col=ifelse(original.mat[j,i]>0,"white","black"))
+			}
+		}
+		invisible()
+	}
+	else list(max.circle = max.circle, mat = mat, yrs = yrs, yrcl = yrcl)
+}
+
+
+plot.lf<-function(data,lgth,cv, xlim,ylim,ylim2,xat,yat,yat2,xnames,ynames,ynames2,line=0.5,cex=0.8,col=0,col2=0,cex2=0.8,border="black",offset=0,tck=-0.025,outer=F,add=F)
+{
+	par(xaxs="i",yaxs="i")
+	#par(xpd=T)
+	if(length(data)!=length(lgth)){
+		stop("lengthof data not equal to that of lgth")
+	}
+	if(missing(xlim)){
+		xlim <- c(0,max(lgth))
+	}
+	if(missing(ylim)){
+		ylim <- c(0,max(pretty(data)))
+	}   
+	if(missing(xat))
+		xat=lgth[lgth %% 20==0];
+	if(missing(yat))
+		yat=ylim
+	if(missing(xnames))
+		xnames=xat
+	if(missing(ynames))
+		ynames=yat
+	if(!missing(cv)){
+		if(missing(ylim2)){
+			ylim2 = c(0,max(pretty(cv)))
+		}
+		if(missing(yat2)){
+			yat2 = ylim2
+		}          
+		if(missing(ynames2)){
+			ynames2 = yat2
+		}
+		if(length(yat2)!=length(ynames2))
+			stop("yat2 and ynames2 not of the same length")	      
+	}
+	if(length(xat)!=length(xnames))
+		stop("xat and xnames not of the same length")	
+	if(length(yat)!=length(ynames))
+		stop("yat and ynames not of the same length")
+	
+	offset = ylim[2]*offset
+	ylim_prime = ylim
+	yat_prime = yat
+	ylim_prime[2] = ylim_prime[2]+offset
+	yat_prime = yat_prime+offset
+	
+	if(!missing(cv)){
+		yat2 = yat2/ylim2[2]*ylim[2]
+		ylim2_prime = ylim2
+		yat2_prime = yat2
+		ylim2_prime[2] = ylim2_prime[2]+offset
+		yat2_prime = yat2_prime+offset
+	}
+	xx <- barplot(data,xlim=xlim,ylim=ylim_prime,space=0,density=-1,err=-1,xlab= "",ylab = "", yaxt = "n",xaxt="n",col=col,border=border,offset=offset,add=add)
+	if(outer){
+		zz <- axis(1, at = xat+(diff(xx)/2)[1], labels = xnames,tck = tck,outer=T)
+	} else {
+		zz <- axis(1, at = xat+(diff(xx)/2)[1], labels = F,tck = tck,outer=F)
+		mtext(side=1,at=xat+(diff(xx)/2)[1],text=xnames,line=line,cex=cex,outer=F)
+	}
+	#text(zz,-diff(ylim)*line,xnames,cex=par("cex.axis"))
+	if(outer){
+		axis(2, at = yat_prime, labels = ynames,tck=tck,outer=T)
+	} else {
+		axis(2, at = yat_prime, labels = F,tck=tck,outer=F)       
+		mtext(side=2,at=yat_prime,text=ynames,line=line,cex=cex,outer=F)
+	}
+	if(!missing(cv)){
+		points(xx,(cv)/ylim2[2]*ylim[2]+offset,pch=16,cex=cex2,col=col2)
+		lines(xx,(cv)/ylim2[2]*ylim[2]+offset,col=col2)
+		if(outer){
+			axis(4,at=yat2_prime,labels=ynames2,tck=tck,outer=T)
+		} else {
+			axis(4,at=yat2_prime,labels=F,tck=tck,outer=F)    
+			mtext(side=4,at=yat2_prime,text=ynames2,line=line,cex=cex,outer=F)
+		}
+	}
+	abline(h=offset,col="gray")
+	box()
+	#par(xpd=F)
+	invisible()
+}
+
+
+
+"SavePlot" <-
+function(filename="",path="",size=1,pointsize=12,res=300,type="jpg") {
+  # Valid types are JPG (default), PNG, and PDF.
+  # the type is automatically added as an extension
+  # size represents a fraction of the height of an a4 page
+  # res = the resolution in 'dpi'. Values that are too high cause errors (and this value appears to be machine dependant)
+  # dimensions (width & height) specify 70% of an A4 page (in inches)
+  width<-(21/2.54)*0.8
+  height<-(29.7/2.54)*0.8
+  if(is.null(filename)) stop("Please specify a filename")
+  this.image<-recordPlot()
+  valid<-c("jpg","png","pdf","wmf")
+  Type<-valid[match(tolower(type),valid)]
+  if(is.na(Type)) {
+    stop(paste(type,"is an invalid file type"))
+  } else if(Type=="png") {
+    filename <- paste(make.filename(filename,path),".png",sep="")
+    png(filename=filename,width=width,height=height*size,units="in",pointsize=pointsize,bg="white",res=res,restoreConsole=TRUE)
+    replayPlot(this.image)
+    dev.off()
+  } else if(type=="jpg") {
+    filename <- paste(make.filename(filename,path),".jpg",sep="")
+    jpeg(filename=filename,width=width,height=height*size,units="in",quality=100,pointsize=pointsize,bg="white",res=res,restoreConsole=TRUE)
+    replayPlot(this.image)
+    dev.off()
+  } else if(type=="pdf") {
+    filename <- paste(make.filename(filename,path),".pdf",sep="")
+    pdf(file=filename,width=width,height=height*size,pointsize=pointsize,bg="white")
+    replayPlot(this.image)
+    dev.off()
+  } else if(type=="wmf") {
+    filename <- paste(make.filename(filename,path),".wmf",sep="")
+    savePlot(filename,type="wmf")
+  }
+  return(filename)
+}
+
+
