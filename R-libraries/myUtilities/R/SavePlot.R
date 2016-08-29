@@ -1,12 +1,12 @@
 SavePlot <-
-function(filename="",path="",size=1,pointsize=12,res=300,type="jpg") {
+function(filename="",path="",size=1,width =(21/2.54)*0.8,height = (29.7/2.54)*0.8,pointsize=12,res=300,type="jpg") {
   # Valid types are JPG (default), PNG, and PDF.
   # the type is automatically added as an extension
   # size represents a fraction of the height of an a4 page
   # res = the resolution in 'dpi'. Values that are too high cause errors (and this value appears to be machine dependant)
   # dimensions (width & height) specify 70% of an A4 page (in inches)
-  width<-(21/2.54)*0.8
-  height<-(29.7/2.54)*0.8
+  
+  
   if(is.null(filename)) stop("Please specify a filename")
   this.image<-recordPlot()
   valid<-c("jpg","png","pdf","wmf")
