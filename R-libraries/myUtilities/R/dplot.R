@@ -1,5 +1,4 @@
-dplot <-
-function (..., name = T, quantiles = c(0.5), plot.mean = F, main = "Density Plot", xlab = "", ylab = "", ylim, srtx = 0, bw = "nrd0", adjust = 1/3, adj = 0, fill = F, gap = 0.2) 
+dplot <- function (..., name = T, quantiles = c(0.5), plot.mean = F, main = "Density Plot", xlab = "", ylab = "", ylim, srtx = 0, bw = "nrd0", adjust = 1/3, adj = 0, fill = F, gap = 0.2) 
 {
     dlines <- function(y, offset, Q, bw, adjust, gap) {
         y <- y[!is.na(y)]
